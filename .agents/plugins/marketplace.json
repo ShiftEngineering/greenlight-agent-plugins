@@ -1,0 +1,20 @@
+{
+  "name": "greenlight-tools",
+  "interface": {
+    "displayName": "Greenlight Tools"
+  },
+  "plugins": [
+    {
+      "name": "greenlight",
+      "source": {
+        "source": "local",
+        "path": "./plugins/greenlight"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

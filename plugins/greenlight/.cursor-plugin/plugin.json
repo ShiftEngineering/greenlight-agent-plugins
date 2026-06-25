@@ -1,0 +1,10 @@
+{
+  "name": "greenlight",
+  "version": "1.0.0",
+  "description": "Build governed internal apps through Greenlight.",
+  "author": {
+    "name": "Shift Engineering"
+  },
+  "rules": "rules",
+  "mcpServers": "mcp.json"
+}

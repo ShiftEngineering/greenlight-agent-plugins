@@ -1,0 +1,9 @@
+{
+  "name": "greenlight",
+  "displayName": "Greenlight",
+  "description": "Build governed internal apps through Greenlight.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Shift Engineering"
+  }
+}

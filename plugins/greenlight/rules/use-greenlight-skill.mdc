@@ -1,0 +1,19 @@
+---
+description: Read the full Greenlight skill before any Greenlight work, and re-read it after context compaction.
+alwaysApply: true
+---
+
+When you do anything involving Greenlight — building, changing, deploying, verifying, debugging, or
+maintaining a Greenlight-governed app, or working in any repo with a `greenlight.yml` — read the
+**entire** Greenlight skill (`skills/greenlight/SKILL.md`) from start to finish before you act.
+Don't act on a partial read or a remembered summary.
+
+The skill defines the load-bearing order of operations (register → clone with the `getRepoAccess`
+token → declare infra in `greenlight.yml` → open the PR → wait for the pipeline → merge → verify
+and show the app with `getAppPreviewUrl`) and which MCP tools to use for what (`listApps`,
+`listGrantableIntegrations`, `getRepoAccess`, `getApp`, `getPipelineRun`, `getAppPreviewUrl`, …).
+Skipping it leads to wrong tool usage and wrong sequencing.
+
+If your context was summarized or compacted, re-read the entire skill before continuing Greenlight
+work. Subagents must read it too — never hand Greenlight work to a subagent that has not read the
+full skill.

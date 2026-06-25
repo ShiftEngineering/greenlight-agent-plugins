@@ -1,0 +1,16 @@
+{
+  "name": "greenlight-tools",
+  "owner": {
+    "name": "Shift Engineering",
+    "email": "greenlight@shifthq.ai"
+  },
+  "plugins": [
+    {
+      "name": "greenlight",
+      "source": "./plugins/greenlight",
+      "description": "Build governed internal apps through Greenlight",
+      "category": "Productivity",
+      "tags": ["greenlight", "mcp", "builder"]
+    }
+  ]
+}

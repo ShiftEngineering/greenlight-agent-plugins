@@ -1,0 +1,14 @@
+{
+  "name": "greenlight",
+  "version": "1.0.0",
+  "description": "Build governed internal apps through Greenlight.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Greenlight",
+    "shortDescription": "Governed app building for enterprise coding agents",
+    "developerName": "Shift Engineering",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"]
+  }
+}
