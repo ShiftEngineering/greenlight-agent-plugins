@@ -493,8 +493,12 @@ line at startup. At MVP:
 
 - **Injected integration with `local_dev_enabled`** → the real credential, in-process. Live.
 - **Injected integration with `local_dev_enabled: false`** → IT withholds it; author a fixture.
-- **Proxied integration** → fixture-only locally for now (the minted local proxy token is a later
-  increment) — author a fixture for the loop.
+- **Proxied integration with `local_dev_enabled`** → live through the same broker: `greenlight run`
+  mints a short-lived `purpose: 'local'` token and points the app at the real public proxy, so calls
+  go through the unchanged grant-check + credential-swap + audit path. No upstream secret on the
+  laptop.
+- **Proxied integration with `local_dev_enabled: false`** → IT withholds it; calls get a `403`,
+  so author a fixture for the loop.
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
 - **Blob** → a freshly minted short-TTL SAS. Live.
 

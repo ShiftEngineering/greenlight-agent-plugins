@@ -191,8 +191,8 @@ const accountFor = (apiBase) => `${KEYCHAIN_ACCOUNT}:${sha256(apiBase).slice(0, 
 
 const INTEGRATION_LABEL = {
   live_raw: 'live (raw, injected)',
+  live_proxy: 'live (proxy token)',
   fixtures_policy_off: 'fixtures (local dev off)',
-  fixtures_proxied: 'fixtures (proxied — needs T-893)',
   fixtures_user_delegated: 'fixtures (user-delegated)',
 };
 const RESOURCE_LABEL = {
@@ -280,6 +280,30 @@ async function cmdRun(apiBase, devCommand) {
     throw new CliError(`Could not resolve the run contract: ${msg}`);
   }
   const contract = res.body;
+
+  // Proxied integrations are reached through a minted `purpose: 'local'` proxy
+  // token: when the contract reports a live proxied integration, mint it and
+  // point the app at the real public proxy. App code reads the same env vars as
+  // the deployed pod — only the GREENLIGHT_DATA_KEY value differs (ADR-0022).
+  if ((contract.integrations ?? []).some((i) => i.local === 'live_proxy')) {
+    const minted = await jsonRequest('POST', `${apiBase}/api/cli/proxy-token`, {
+      token,
+      body: { app_id: appId },
+    });
+    if (minted.status !== 200) {
+      const msg = minted.body?.message ?? `HTTP ${minted.status}`;
+      throw new CliError(`Could not mint the local proxy token: ${msg}`);
+    }
+    contract.env = {
+      ...contract.env,
+      GREENLIGHT_DATA_KEY: minted.body.data_key,
+      GREENLIGHT_PROXY_URL: `${apiBase}/proxy`,
+    };
+    // The token can expire before the session/SAS; surface the earliest deadline.
+    if (new Date(minted.body.expires_at) < new Date(contract.expires_at)) {
+      contract.expires_at = minted.body.expires_at;
+    }
+  }
 
   process.stdout.write(`\ngreenlight run — ${contract.app_slug} (local)\n`);
   for (const line of formatSummary(contract)) process.stdout.write(`${line}\n`);
