@@ -31,8 +31,8 @@ the blocker; surface a real error only if both paths genuinely fail.
 
 ## Two interchangeable surfaces: MCP tools and the `greenlight` CLI
 
-Greenlight's read, verify, and local-run surface is reachable **two equivalent ways** — treat them
-as fully interchangeable and use whichever is authenticated:
+Greenlight's builder surface is reachable **two equivalent ways** — treat them as fully
+interchangeable and use whichever is authenticated:
 
 - **MCP tools** — `listApps`, `getApp`, `getPipelineRun`, … in your tool list.
 - **The `greenlight` CLI** — a bundled agent client that calls the **same `/mcp` tools** but holds its
@@ -42,8 +42,8 @@ as fully interchangeable and use whichever is authenticated:
 
 **When MCP auth is failing, switch to the CLI — that is exactly what it is for.** Coding-agent MCP
 OAuth clients refresh unreliably, so MCP tool calls can start returning auth errors mid-session; the
-CLI refreshes its own credential, so the same operation succeeds through it. Every read/verify goal in
-the map below works from either surface.
+CLI refreshes its own credential, so the same operation succeeds through it. The goals in the map
+below work from either surface.
 
 **Sign the CLI in** (either path yields the same credential; refresh is then automatic):
 
@@ -52,29 +52,41 @@ the map below works from either surface.
 - **`greenlight login`** — standalone browser OAuth (a loopback flow) for when there is no usable MCP
   session; open the URL it prints (or hand it to the human).
 
-**CLI ↔ MCP equivalence** — read/verify goals, callable from either surface:
+**CLI ↔ MCP equivalence** — builder goals, callable from either surface:
 
-| Goal                               | MCP tool                                             | `greenlight` CLI                        |
-| ---------------------------------- | ---------------------------------------------------- | --------------------------------------- |
-| List apps                          | `listApps`                                           | `apps list`                             |
-| App detail / live state            | `getApp`                                             | `apps show --app <id>`                  |
-| Discover grantable integrations    | `listGrantableIntegrations`                          | `integrations list`                     |
-| Read declared env (names/values)   | `envList`                                            | `env list --app <id>`                   |
-| Pipeline status (`--wait` to poll) | `getPipelineRun`                                     | `pipeline --app <id> …`                 |
-| Pod logs                           | `getLogs`                                            | `logs --app <id>`                       |
-| Metrics (point / series)           | `getMetrics` / `getMetricsSeries`                    | `metrics` / `metrics series --app <id>` |
-| Knowledge (list / get / search)    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` | `knowledge list` / `get` / `search`     |
-| Clone the repo (minted token)      | `getRepoAccess`                                      | `repo clone --app <id>`                 |
-| Preview URL for verification       | `getAppPreviewUrl`                                   | `preview --app <id>`                    |
+| Goal                               | MCP tool                                                                  | `greenlight` CLI                                |
+| ---------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- |
+| Register a new app                 | `registerApp`                                                             | `apps register`                                 |
+| List apps                          | `listApps`                                                                | `apps list`                                     |
+| App detail / live state            | `getApp`                                                                  | `apps show --app <id>`                          |
+| Discover grantable integrations    | `listGrantableIntegrations`                                               | `integrations list`                             |
+| Read declared env (names/values)   | `envList`                                                                 | `env list --app <id>`                           |
+| Set / remove env values            | `envSet` / `envRemove`                                                    | `env set` / `env rm`                            |
+| Open / merge a PR                  | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                          |
+| Pipeline status (`--wait` to poll) | `getPipelineRun`                                                          | `pipeline --app <id> …`                         |
+| Pod logs                           | `getLogs`                                                                 | `logs --app <id>`                               |
+| Metrics (point / series)           | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
+| Knowledge (read / propose)         | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose` |
+| Clone the repo (minted token)      | `getRepoAccess`                                                           | `repo clone --app <id>`                         |
+| Preview URL for verification       | `getAppPreviewUrl`                                                        | `preview --app <id>`                            |
+| Share / unshare app ownership      | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                             |
 
 CLI-only helpers: `greenlight run -- <cmd>` (local dev — see _Local development_), `greenlight doctor`,
 `greenlight whoami`, `greenlight logout`. Recover flag detail from `greenlight help` or
 `greenlight <command> --help` — never guess.
 
-**Writes still go through MCP.** The mutation tools — `registerApp`, `envSet` / `envRemove`,
-`createPullRequest`, `mergePullRequest`, `addCoOwner`, `knowledgePropose` — have **no CLI equivalent
-yet** (write parity is a follow-up), so those steps need a working MCP session. When MCP auth is the
-blocker, the CLI read/verify surface still lets you keep diagnosing while you get MCP signed back in.
+**Write payloads use stdin/file, never argv.** Env values and Markdown/PR bodies can contain secrets
+or multiline text, so the CLI refuses `--value` and `--body`. Pipe or use a file/fd instead:
+
+```bash
+printf '%s' "$VALUE" | greenlight env set --app <id> --name API_KEY --sensitive --reason "rotate key"
+greenlight pr open --app <id> --head feature/demo --title "Ship demo" --body-file /tmp/pr-body.md
+greenlight knowledge propose --scope app --app <id> --topic schema-notes --title "Schema notes" \
+  --rationale "Future agents need this" --body-file /tmp/schema-notes.md
+```
+
+After `greenlight apps register`, use `greenlight repo clone --app <id>` for an authenticated checkout;
+the register response's `repo_url` is intentionally token-free.
 
 **If the CLI is missing or stale**, it has three install paths — try the next on failure: (1) the
 **plugin bundle** (this artifact); (2) **control-plane-hosted** — `curl` the `/cli/install.sh` route on
@@ -116,17 +128,17 @@ The standard new-app loop:
    it) and a `README.md`. Write your `Dockerfile` and `src/`.
 3. **Declare infrastructure** by uncommenting and editing `greenlight.yml`: add `workloads.web`,
    any `resources`, any integration `grants`, and the _names_ of env vars under `env`.
-4. **Set env-var values** for each name you declared, with `envSet` — pass `app_id`,
-   the `name`, its `value`, a `sensitive` flag, and a `reason`. Names live in the manifest; values
-   live in the vault. Set the value before or after declaring its name, but every declared name
-   must have a value by merge time or the deploy fails with `MISSING_ENV_VALUE`.
-5. **Open the PR** with `createPullRequest` — **after** your head branch is pushed (pass `app_id`
-   and that branch). Do this through Greenlight, never with `gh` or the GitHub API (see _Source
-   control_ below).
+4. **Set env-var values** for each name you declared, with `envSet` or `greenlight env set` — pass
+   `app_id`, the `name`, the value via stdin/file, a `sensitive` flag, and a `reason`. Names live in
+   the manifest; values live in the vault. Set the value before or after declaring its name, but
+   every declared name must have a value by merge time or the deploy fails with `MISSING_ENV_VALUE`.
+5. **Open the PR** with `createPullRequest` or `greenlight pr open` — **after** your head branch is
+   pushed (pass `app_id` and that branch). Do this through Greenlight, never with `gh` or the GitHub
+   API (see _Source control_ below).
 6. **Wait, then merge.** Poll `getPipelineRun` (`greenlight pipeline --pr <n> --wait`) with
    `pull_request_number` and `wait: true`. Once it passes, merge through Greenlight with
-   `mergePullRequest({ app_id, pull_request_number })` (MCP-only) — **never** `gh pr merge` or the
-   GitHub API. **The merge is the apply trigger** — it provisions declared resources, reconciles
+   `mergePullRequest({ app_id, pull_request_number })` or `greenlight pr merge` — **never** `gh pr merge`
+   or the GitHub API. **The merge is the apply trigger** — it provisions declared resources, reconciles
    grants, builds and rolls out the workload.
 7. **Observe the deploy, then verify.** Poll `getPipelineRun` again on the merge SHA (`commit_sha`,
    `wait: true`), then `getApp` (`greenlight apps show`) for the live state and deployment URL. **Then verify the change
@@ -238,8 +250,8 @@ for one of the tools above means the release is incomplete, not that the workflo
 
 Customer-specific context lives in **Knowledge** — DB-backed Markdown entries scoped to org,
 integration, or app, served through MCP. Start a session by reading org and app Knowledge, and
-read integration Knowledge before writing data-access code (each read has a CLI twin —
-`greenlight knowledge list` / `get` / `search`; `knowledgePropose` is MCP-only for now):
+read integration Knowledge before writing data-access code (each Knowledge operation has a CLI twin —
+`greenlight knowledge list` / `get` / `search` / `propose`):
 
 - `knowledgeList({ scope: 'org' })` and `knowledgeList({ scope: 'app', app_id })` at session start.
 - `knowledgeList({ scope: 'integration', integration })` + `knowledgeGet` before data-access code.
@@ -589,38 +601,39 @@ Seeing the app is the citizen developer's main feedback signal — show it, don'
 
 ## Sharing apps and working on a teammate's app
 
-The full sharing/co-owner flow is not available in the current release. When it ships, the intended
-path is `addCoOwner({ app_id, user_email, reason })` after confirming the collaborator's
-email. Until then, do not promise to add collaborators through Greenlight.
+Owners and co-owners can add or remove another co-owner by email:
+`addCoOwner({ app_id, user_email, reason })` / `removeCoOwner({ app_id, user_email, reason })`,
+or `greenlight share --app <id> --email <email> --reason "..."` /
+`greenlight unshare --app <id> --email <email> --reason "..."`.
 
 To work on an app a colleague built, use `listApps({ slug })` only if it is available and
-the caller already has access; otherwise tell the user the app owner needs to share access through
-the currently supported human process. Once you have access, pair the CLI and use `greenlight run`
-for the local loop (fixtures for any fixture-only dependency).
+the caller already has access; otherwise tell the user the app owner needs to share access first.
+Once you have access, pair the CLI and use `greenlight run` for the local loop (fixtures for any
+fixture-only dependency).
 
 ## Quick reference
 
-Read/verify goals list both surfaces — use whichever is authenticated (see _Two interchangeable
-surfaces_). Writes are MCP-only for now (— in the CLI column).
+Use whichever authenticated surface is working (see _Two interchangeable surfaces_). CLI write
+payloads come from stdin/file/fd, never from `--value` or `--body`.
 
-| Goal                                                        | MCP tool                                                    | `greenlight` CLI                                         |
-| ----------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
-| Register a new app                                          | `registerApp`                                               | — (MCP-only)                                             |
-| Provision a DB / blob, add a workload, request data access  | edit `greenlight.yml` → PR → merge                          | —                                                        |
-| Discover grantable integrations / credential slugs          | `listGrantableIntegrations`                                 | `integrations list`                                      |
-| Set or change an env-var value                              | `envSet` / `envRemove`                                      | — (MCP-only)                                             |
-| Read what's set / declared                                  | `getApp`, `envList`; `getPermissions` pending               | `apps show`, `env list`                                  |
-| Run the app locally (real data per policy, no file on disk) | —                                                           | `greenlight run -- <cmd>` (after `pair`/`login`)         |
-| Open / merge a PR                                           | `createPullRequest` / `mergePullRequest`                    | — (MCP-only)                                             |
-| Wait on / debug the pipeline                                | `getPipelineRun` (`detail: 'full'` for logs)                | `pipeline --wait` (`--detail full`)                      |
-| Verify a deploy / read logs / metrics                       | `getApp` + `getLogs` / `getMetrics`; `curlApp` pending      | `apps show` + `logs` / `metrics`                         |
-| See a deployed app in a browser (render, click, screenshot) | `getAppPreviewUrl` → open `preview_url`                     | `preview` → open the URL                                 |
-| Know who the signed-in user is                              | read the edge-injected `X-User-Id` / `X-User-Email` headers | — (same headers)                                         |
-| Show the citizen developer the app                          | `getAppPreviewUrl` after deploy                             | `greenlight run` preview while building; `preview` after |
-| Read / propose customer context                             | `knowledgeList` / `Get` / `Search` / `knowledgePropose`     | `knowledge list` / `get` / `search` (propose MCP-only)   |
-| Read enforced rules                                         | `getPolicies` (pending)                                     | —                                                        |
-| Share or join an app                                        | `addCoOwner` (pending)                                      | —                                                        |
-| Write/commit/push code                                      | `getRepoAccess` token → git (not `gh`)                      | `repo clone`, then git                                   |
+| Goal                                                        | MCP tool                                                                  | `greenlight` CLI                                         |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Register a new app                                          | `registerApp`                                                             | `apps register`                                          |
+| Provision a DB / blob, add a workload, request data access  | edit `greenlight.yml` → PR → merge                                        | —                                                        |
+| Discover grantable integrations / credential slugs          | `listGrantableIntegrations`                                               | `integrations list`                                      |
+| Set or change an env-var value                              | `envSet` / `envRemove`                                                    | `env set` / `env rm`                                     |
+| Read what's set / declared                                  | `getApp`, `envList`; `getPermissions` pending                             | `apps show`, `env list`                                  |
+| Run the app locally (real data per policy, no file on disk) | —                                                                         | `greenlight run -- <cmd>` (after `pair`/`login`)         |
+| Open / merge a PR                                           | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                                   |
+| Wait on / debug the pipeline                                | `getPipelineRun` (`detail: 'full'` for logs)                              | `pipeline --wait` (`--detail full`)                      |
+| Verify a deploy / read logs / metrics                       | `getApp` + `getLogs` / `getMetrics`; `curlApp` pending                    | `apps show` + `logs` / `metrics`                         |
+| See a deployed app in a browser (render, click, screenshot) | `getAppPreviewUrl` → open `preview_url`                                   | `preview` → open the URL                                 |
+| Know who the signed-in user is                              | read the edge-injected `X-User-Id` / `X-User-Email` headers               | — (same headers)                                         |
+| Show the citizen developer the app                          | `getAppPreviewUrl` after deploy                                           | `greenlight run` preview while building; `preview` after |
+| Read / propose customer context                             | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose`          |
+| Read enforced rules                                         | `getPolicies` (pending)                                                   | —                                                        |
+| Share or join an app                                        | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                                      |
+| Write/commit/push code                                      | `getRepoAccess` token → git (not `gh`)                                    | `repo clone`, then git                                   |
 
 ## Scope
 
