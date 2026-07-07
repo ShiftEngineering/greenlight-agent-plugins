@@ -427,7 +427,11 @@ Whether a grant delivers the proxy pair (**proxied**) or a direct credential und
 (**injected**) is a property of the integration (`delivery_mode`), not the manifest — so the exact
 names depend on which integrations the app is granted. An app with no `resources` and no `grants`
 receives only `PORT`. **Always call `getApp` (or `envList`) for the exact managed names a specific
-app gets.** The fixed reserved set — rejected by `envSet` and the manifest validator regardless of
+app gets.** A grant awaiting IT approval (`status: pending`, `approval_mode: manual`) delivers
+**no** runtime value yet: an injected grant's env var is not present until IT approves and the app
+redeploys, and a pending injected grant does **not** give the app `GREENLIGHT_DATA_KEY` (that is only
+for proxied grants). `getApp`/`envList` reflect this — a pending injected grant shows its
+`env_var_name` on the grant but does not list it as a managed name. The fixed reserved set — rejected by `envSet` and the manifest validator regardless of
 what the app declares — is `DATABASE_URL`, `STORAGE_SAS_URL`, `STORAGE_CONTAINER_NAME`,
 `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`, `PORT`, `GREENLIGHT_AI_KEY`,
 `GREENLIGHT_AI_BASE_URL`, `PUBLIC_BASE_URL`, `DEV_USER_EMAIL`, `DEV_USER_GROUPS`; each injected
