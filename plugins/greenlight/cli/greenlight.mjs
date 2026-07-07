@@ -16095,6 +16095,20 @@ var REPO_CLONE_FLAGS = {
   },
   dir: { field: "dir", type: "string", describe: "Target directory (defaults to the repo name)." }
 };
+var REPO_REFRESH_FLAGS = {
+  app: {
+    field: "app_id",
+    type: "string",
+    required: true,
+    format: "uuid",
+    describe: "App id (from `apps list`)."
+  },
+  dir: {
+    field: "dir",
+    type: "string",
+    describe: "Existing checkout directory (defaults to the current directory)."
+  }
+};
 var defaultRunGit = (gitArgs) => {
   const r = spawnSync2("git", gitArgs, { stdio: ["ignore", 2, 2] });
   return { status: r.status, signal: r.signal };
@@ -16122,6 +16136,39 @@ async function cmdRepoClone(apiBase, args, global, deps = {}) {
     cloned: true,
     repo: repoName ?? null,
     directory: dir ?? repoName ?? null,
+    clone_url: cloneUrl ?? null,
+    // token-free URL only
+    credentials_expire_at: expiresAt ?? null
+  });
+  return 0;
+}
+async function cmdRepoRefresh(apiBase, args, global, deps = {}) {
+  const runGit = deps.runGit ?? defaultRunGit;
+  const { dir: dirValue, ...input } = parseFlags(args, REPO_REFRESH_FLAGS);
+  const dir = typeof dirValue === "string" ? dirValue : ".";
+  const result = await callTool(apiBase, "getRepoAccess", input, { debug: global.debug });
+  if (result.isError) {
+    emit(result.structuredContent);
+    return exitCodeForToolError(result.structuredContent);
+  }
+  const authUrl = readString(result.structuredContent, "authenticated_clone_url");
+  const cloneUrl = readString(result.structuredContent, "clone_url");
+  const repoName = readString(result.structuredContent, "repo_name");
+  const expiresAt = readString(result.structuredContent, "expires_at");
+  if (!authUrl) throw new CliError("getRepoAccess did not return an authenticated clone URL.");
+  const setUrl = runGit(["-C", dir, "remote", "set-url", "origin", authUrl]);
+  if (setUrl.status !== 0) {
+    throw new CliError(
+      `git remote set-url failed (exit ${setUrl.status ?? setUrl.signal ?? "unknown"}). Is '${dir}' a checkout of this app's repo?`
+    );
+  }
+  note(
+    `Refreshed origin credentials for ${repoName ?? "repo"} (expire ${expiresAt ?? "shortly"}).`
+  );
+  emit({
+    refreshed: true,
+    repo: repoName ?? null,
+    directory: dir,
     clone_url: cloneUrl ?? null,
     // token-free URL only
     credentials_expire_at: expiresAt ?? null
@@ -16255,7 +16302,13 @@ var MCP_COMMANDS = {
         required: true,
         describe: "URL-safe app slug."
       },
-      description: { field: "description", type: "string", describe: "App description." }
+      description: { field: "description", type: "string", describe: "App description." },
+      type: {
+        field: "type",
+        type: "enum",
+        enumValues: ["server"],
+        describe: 'App shape (only "server" at MVP; defaults to "server").'
+      }
     }
   },
   "integrations list": {
@@ -16611,6 +16664,10 @@ var LOCAL_FLAG_HELP = {
   "repo clone": {
     summary: "Clone the app repo with a minted token (never printed).",
     flags: REPO_CLONE_FLAGS
+  },
+  "repo refresh": {
+    summary: "Re-point an existing checkout's origin at a fresh token (never printed).",
+    flags: REPO_REFRESH_FLAGS
   }
 };
 var AUTH_COMMANDS = [
@@ -16622,6 +16679,10 @@ var AUTH_COMMANDS = [
 var LOCAL_COMMANDS = [
   ["run -- <cmd>", "Run a dev command with the app's env contract injected."],
   ["repo clone --app <id> [--dir <d>]", "Clone the app repo with a minted token (never printed)."],
+  [
+    "repo refresh --app <id> [--dir <d>]",
+    "Re-point an existing checkout's origin at a fresh token."
+  ],
   ["preview --app <id> [--path <p>]", "Emit a single-use preview URL."],
   ["doctor", "Report config, auth state, and server reachability."],
   ["help [command]", "Show this help, or a command's flags."]
@@ -17202,7 +17263,8 @@ function resolveCommand(tokens) {
   const first = tokens[0] ?? "";
   const second = tokens[1];
   const twoWord = second !== void 0 && !second.startsWith("--") ? `${first} ${second}` : void 0;
-  const command = twoWord && (MCP_COMMANDS[twoWord] || twoWord === "repo clone") ? twoWord : first;
+  const localTwoWord = twoWord === "repo clone" || twoWord === "repo refresh";
+  const command = twoWord && (MCP_COMMANDS[twoWord] || localTwoWord) ? twoWord : first;
   return { command, rest: tokens.slice(command.split(" ").length) };
 }
 async function main(argv) {
@@ -17242,6 +17304,7 @@ async function main(argv) {
   }
   if (command === "doctor") return cmdDoctor(resolveApiBase());
   if (command === "repo clone") return cmdRepoClone(resolveApiBase(), rest, global);
+  if (command === "repo refresh") return cmdRepoRefresh(resolveApiBase(), rest, global);
   if (command === "preview") return cmdPreview(resolveApiBase(), rest, global);
   const spec = MCP_COMMANDS[command];
   if (spec) return runMcpCommand(resolveApiBase(), spec, rest, global);

@@ -68,6 +68,7 @@ below work from either surface.
 | Metrics (point / series)           | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
 | Knowledge (read / propose)         | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose` |
 | Clone the repo (minted token)      | `getRepoAccess`                                                           | `repo clone --app <id>`                         |
+| Refresh repo token on a checkout   | `getRepoAccess`                                                           | `repo refresh --app <id>`                       |
 | Preview URL for verification       | `getAppPreviewUrl`                                                        | `preview --app <id>`                            |
 | Share / unshare app ownership      | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                             |
 
@@ -259,6 +260,18 @@ read integration Knowledge before writing data-access code (each Knowledge opera
 - `knowledgePropose({ … , rationale })` after you learn something worth saving for the next session —
   it files a proposal for human review and never edits Knowledge directly.
 
+**Knowledge is a best-effort head start, not a precondition.** Check it — it often saves real work —
+but do not assume an entry exists for a given org, app, or integration, or that any entry it does
+have tells you how to call an upstream API. Many integrations will have no Knowledge at all. When
+it's missing or thin, **don't stop and don't guess** — go find the information yourself: read the
+upstream provider's own public docs, API reference, or SDK source to work out its endpoints, required
+params, and auth convention (this is normal, expected work). Then, when you've figured something out
+that the next session would otherwise have to rediscover — an integration's real endpoints and auth
+shape, a non-obvious symbol/ID lookup, a data-model quirk — **write it back with `knowledgePropose`**
+(scope it to the integration or app, with a `rationale`). That turns your one-time reverse-engineering
+into durable context and is how integration Knowledge gets seeded in practice. Propose facts you
+verified by actually calling the API, not assumptions.
+
 `getPolicies` (the enforced pipeline rules) is not available yet; until it ships, keep policy
 assumptions local to the repo and the current `greenlight.yml`.
 
@@ -420,8 +433,11 @@ user-scoped upstream credential.
 _Which_ integrations exist and each one's delivery mode is customer-specific — call
 `listGrantableIntegrations` to enumerate them (it returns `delivery_mode` and `env_var_name`
 per integration). _How_ to query a given upstream is best read from integration Knowledge —
-`knowledgeList({ scope: 'integration', integration })` then `knowledgeGet` — falling back to the
-user's/org's instructions plus `getApp`, never hardcoded assumptions in this file.
+`knowledgeList({ scope: 'integration', integration })` then `knowledgeGet` — but that entry
+frequently won't exist. When it's absent, read the provider's own public API docs or SDK source to
+work out endpoints, params, and the auth slot yourself, confirm it against a real call, and then
+`knowledgePropose` an integration-scope entry so the next agent doesn't repeat the dig (see _Runtime
+context_). Never fall back to hardcoded assumptions baked into this file.
 
 ## Knowing who the signed-in user is (the `X-User-*` headers)
 
@@ -473,8 +489,10 @@ git -C <dir> remote set-url origin https://x-access-token:<token>@<host>/<owner>
 git -C <dir> push origin <branch>
 ```
 
-Refresh the token with another `getRepoAccess` call if your session runs past its `expires_at`
-(~1 hour). The governed change request then goes through MCP:
+Refresh the token if your session runs past its `expires_at` (~1 hour): `greenlight repo refresh
+--app <id> [--dir <dir>]` mints a fresh one and re-points `origin` on the existing checkout in a
+single step (token never printed), or call `getRepoAccess` again and re-run the `remote set-url`
+yourself. The governed change request then goes through MCP:
 
 - **Open** with `createPullRequest` **after your feature branch is pushed** (above). Pass `app_id`
   and your head branch; Greenlight resolves the repo. You never name the repo and never hold a
@@ -634,6 +652,7 @@ payloads come from stdin/file/fd, never from `--value` or `--body`.
 | Read enforced rules                                         | `getPolicies` (pending)                                                   | —                                                        |
 | Share or join an app                                        | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                                      |
 | Write/commit/push code                                      | `getRepoAccess` token → git (not `gh`)                                    | `repo clone`, then git                                   |
+| Refresh an expired repo token on a checkout                 | `getRepoAccess` → `git remote set-url`                                    | `repo refresh --app <id> [--dir <d>]`                    |
 
 ## Scope
 
