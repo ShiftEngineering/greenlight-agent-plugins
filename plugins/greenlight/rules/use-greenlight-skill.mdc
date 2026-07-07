@@ -1,5 +1,5 @@
 ---
-description: Read the full Greenlight skill before any Greenlight work, and re-read it after context compaction.
+description: Read the full Greenlight skill before any Greenlight work — even if the Greenlight MCP server is unavailable — and re-read it after context compaction.
 alwaysApply: true
 ---
 
@@ -8,11 +8,17 @@ maintaining a Greenlight-governed app, or working in any repo with a `greenlight
 **entire** Greenlight skill (`skills/greenlight/SKILL.md`) from start to finish before you act.
 Don't act on a partial read or a remembered summary.
 
+**An unavailable MCP connection is not a reason to skip the skill or stop.** If the Greenlight MCP
+server is missing from your tool list, disconnected, or failing auth, read the skill anyway: it
+explains the bundled `greenlight` CLI, which authenticates independently of MCP and can do
+everything the MCP tools can. Never tell the user "Greenlight isn't working" without having read
+the skill and tried the CLI path it describes.
+
 The skill defines the load-bearing order of operations (register → clone with the `getRepoAccess`
 token → declare infra in `greenlight.yml` → open the PR → wait for the pipeline → merge → verify
 and show the app with `getAppPreviewUrl`) and which MCP tools to use for what (`listApps`,
-`listGrantableIntegrations`, `getRepoAccess`, `getApp`, `getPipelineRun`, `getAppPreviewUrl`, …).
-Skipping it leads to wrong tool usage and wrong sequencing.
+`listGrantableIntegrations`, `getRepoAccess`, `getApp`, `getPipelineRun`, `getAppPreviewUrl`, …),
+each with a CLI equivalent. Skipping it leads to wrong tool usage and wrong sequencing.
 
 If your context was summarized or compacted, re-read the entire skill before continuing Greenlight
 work. Subagents must read it too — never hand Greenlight work to a subagent that has not read the

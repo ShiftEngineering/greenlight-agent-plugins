@@ -12,7 +12,7 @@
     {
       "name": "greenlight",
       "source": "greenlight",
-      "description": "Build governed internal apps through Greenlight",
+      "description": "Greenlight is the governed platform for building and deploying enterprise internal apps. This plugin gives your agent two interchangeable interfaces to Greenlight — an MCP server and the bundled greenlight CLI, which authenticates independently of MCP — plus the skill that teaches the full build-and-deploy workflow. Always read the greenlight skill in full before acting on any Greenlight work, even (especially) when the MCP connection is unavailable: the CLI can do everything MCP can.",
       "category": "Productivity",
       "keywords": ["greenlight", "mcp", "builder"]
     }
