@@ -16176,8 +16176,314 @@ async function cmdRepoRefresh(apiBase, args, global, deps = {}) {
   return 0;
 }
 
-// packages/cli/src/cli/payload.ts
+// packages/cli/src/http.ts
+var REQUEST_TIMEOUT_MS = 3e4;
+async function jsonRequest(method, url2, opts = {}) {
+  const headers = {
+    accept: "application/json",
+    "user-agent": userAgent()
+  };
+  if (opts.body !== void 0) headers["content-type"] = "application/json";
+  if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
+  let res;
+  let text;
+  try {
+    res = await fetch(url2, {
+      method,
+      headers,
+      body: opts.body === void 0 ? void 0 : JSON.stringify(opts.body),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? REQUEST_TIMEOUT_MS)
+    });
+    text = await res.text();
+  } catch (err) {
+    throw new CliError(`Request failed: ${method} ${url2} \u2014 ${describeFetchError(err)}`);
+  }
+  let parsed;
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    parsed = { raw: text };
+  }
+  return { status: res.status, body: parsed };
+}
+function describeFetchError(err) {
+  if (err instanceof DOMException && err.name === "TimeoutError") return "timed out";
+  if (err instanceof Error) {
+    const cause = err.cause;
+    return cause instanceof Error ? cause.message : err.message;
+  }
+  return String(err);
+}
+
+// packages/cli/src/oauth/session.ts
+var EXPIRY_SKEW_MS = 90 * 1e3;
+async function getAccessToken(apiBase, opts = {}) {
+  const override = process.env["GREENLIGHT_CLI_TOKEN"];
+  if (override) return override;
+  const record2 = loadOAuthRecord(apiBase);
+  const accessToken = record2.tokens?.access_token;
+  if (!accessToken) throw notSignedInError();
+  if (!opts.forceRefresh && !nearExpiry(record2)) return accessToken;
+  return refresh(apiBase, record2);
+}
+function nearExpiry(record2) {
+  const expiresIn = record2.tokens?.expires_in;
+  if (expiresIn === void 0 || record2.tokensSavedAt === void 0) return false;
+  return record2.tokensSavedAt + expiresIn * 1e3 - EXPIRY_SKEW_MS <= Date.now();
+}
+async function refresh(apiBase, record2) {
+  const refreshToken = record2.tokens?.refresh_token;
+  if (!refreshToken || !record2.client) throw sessionExpiredError();
+  let next;
+  try {
+    const info = await discoverOAuthServerInfo(apiBase);
+    next = await refreshAuthorization(info.authorizationServerUrl, {
+      metadata: info.authorizationServerMetadata,
+      clientInformation: record2.client,
+      refreshToken
+    });
+  } catch (err) {
+    if (isNetworkError(err)) {
+      throw new CliError(
+        "Could not reach Greenlight to refresh your session. Check your connection and retry."
+      );
+    }
+    throw sessionExpiredError();
+  }
+  saveOAuthRecord(apiBase, { ...record2, tokens: next, tokensSavedAt: Date.now() });
+  return next.access_token;
+}
+function isNetworkError(err) {
+  if (!(err instanceof Error)) return false;
+  const cause = err.cause;
+  const causeCode = cause instanceof Error && typeof cause.code === "string" ? cause.code : "";
+  const text = `${err.name} ${err.message} ${causeCode}`;
+  return err.name === "TimeoutError" || /fetch failed|network|timed?[ -]?out/i.test(text) || ["ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].some(
+    (c) => text.includes(c)
+  );
+}
+
+// packages/cli/src/run-contract.ts
+import { spawn } from "node:child_process";
 import { readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname2, join as join2, resolve } from "node:path";
+var MAX_TIMER_MS = 2147483647;
+var INTEGRATION_LABEL = {
+  live_raw: "live (raw, injected)",
+  live_proxy: "live (proxy token)",
+  fixtures_policy_off: "fixtures (local dev off)",
+  fixtures_user_delegated: "fixtures (user-delegated)"
+};
+var RESOURCE_LABEL = {
+  live_sas: "live (short-TTL SAS)",
+  fixtures_inspect: "fixtures + inspectAppDb",
+  pending: "pending (provisioning)"
+};
+function findAppId(cwd) {
+  let dir = resolve(cwd);
+  for (let i = 0; i < 8; i += 1) {
+    try {
+      const text = readFileSync2(join2(dir, "greenlight.yml"), "utf8");
+      return text.match(/^app_id:\s*["']?([^"'\s#]+)/m)?.[1] ?? null;
+    } catch {
+    }
+    const parent = dirname2(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+function parseEnvFile(path) {
+  let text;
+  try {
+    text = readFileSync2(path, "utf8");
+  } catch {
+    throw new CliError(`Could not read --env-file '${path}'.`);
+  }
+  const env = {};
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (value.length >= 2 && (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
+function formatSummary(contract) {
+  const lines = [];
+  for (const i of contract.integrations ?? []) {
+    lines.push(`  ${i.integration}: ${INTEGRATION_LABEL[i.local] ?? i.local}`);
+  }
+  for (const r of contract.resources ?? []) {
+    lines.push(`  ${r.kind}: ${RESOURCE_LABEL[r.local] ?? r.local}`);
+  }
+  return lines;
+}
+function parseRunContract(body) {
+  const record2 = asRecord(body);
+  const appSlug = record2["app_slug"] ?? null;
+  const expiresAt = record2["expires_at"];
+  if (typeof appSlug !== "string" && appSlug !== null || typeof expiresAt !== "string") {
+    throw new CliError("Run contract response is malformed (missing app_slug/expires_at).");
+  }
+  const env = {};
+  for (const [key, value] of Object.entries(asRecord(record2["env"]))) {
+    if (typeof value === "string") env[key] = value;
+  }
+  return {
+    app_slug: appSlug,
+    expires_at: expiresAt,
+    env,
+    integrations: asIntegrations(record2["integrations"]),
+    resources: asResources(record2["resources"])
+  };
+}
+function asIntegrations(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry2) => {
+    const r = asRecord(entry2);
+    return typeof r["integration"] === "string" && typeof r["local"] === "string" ? [{ integration: r["integration"], local: r["local"] }] : [];
+  });
+}
+function asResources(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry2) => {
+    const r = asRecord(entry2);
+    return typeof r["kind"] === "string" && typeof r["local"] === "string" ? [{ kind: r["kind"], local: r["local"] }] : [];
+  });
+}
+function spawnChild(devCommand, contract) {
+  const [cmd, ...args] = devCommand;
+  if (cmd === void 0) throw new CliError("Usage: greenlight run -- <command> [args\u2026]");
+  const child = spawn(cmd, args, {
+    stdio: "inherit",
+    env: { ...process.env, ...contract.env },
+    shell: process.platform === "win32"
+  });
+  const restartTimer = scheduleExpiryNotice(contract.expires_at, () => child.killed === false);
+  const forward = (sig) => () => child.kill(sig);
+  const onSigint = forward("SIGINT");
+  const onSigterm = forward("SIGTERM");
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  return new Promise((resolvePromise, reject) => {
+    child.on("error", (err) => {
+      cleanup();
+      reject(new CliError(`Failed to start \`${cmd}\`: ${err.message}`));
+    });
+    child.on("exit", (code, signal) => {
+      cleanup();
+      resolvePromise(signal ? 1 : code ?? 0);
+    });
+    function cleanup() {
+      if (restartTimer) clearTimeout(restartTimer);
+      process.off("SIGINT", onSigint);
+      process.off("SIGTERM", onSigterm);
+    }
+  });
+}
+function scheduleExpiryNotice(expiresAt, stillRunning) {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0 || ms > MAX_TIMER_MS) return null;
+  const timer = setTimeout(() => {
+    if (stillRunning()) {
+      process.stderr.write(
+        "\n[greenlight] Local credentials have expired. Proxy/blob calls will start failing \u2014 restart `greenlight run` to mint fresh ones.\n"
+      );
+    }
+  }, ms);
+  if (typeof timer.unref === "function") timer.unref();
+  return timer;
+}
+
+// packages/cli/src/commands/run.ts
+var RUN_FLAGS = {
+  app: {
+    field: "app_id",
+    type: "string",
+    format: "uuid",
+    describe: "Run on this app's grants + env contract. Omit for user mode (your own grants)."
+  },
+  env: {
+    field: "env",
+    type: "string",
+    repeated: true,
+    describe: "Extra KEY=VALUE for the child (repeatable); Greenlight-managed names win."
+  },
+  "env-file": {
+    field: "env_file",
+    type: "string",
+    describe: "Dotenv-style file of extra vars for the child."
+  }
+};
+function ensureOk(res, context) {
+  if (res.status === 401) throw sessionExpiredError();
+  if (res.status === 403) {
+    throw forbiddenError(
+      "This CLI session is not scoped to this app. Re-pair from an owner/co-owner."
+    );
+  }
+  if (res.status !== 200) {
+    const msg = readString(res.body, "message") ?? `HTTP ${res.status}`;
+    throw new CliError(`${context}: ${msg}`);
+  }
+}
+async function cmdRun(apiBase, opts, devCommand) {
+  if (devCommand.length === 0) {
+    throw new CliError(
+      "Usage: greenlight run [--app <id>] [--env K=V] [--env-file <p>] -- <command> [args\u2026]"
+    );
+  }
+  const token = await getAccessToken(apiBase);
+  if (opts.appId === void 0) {
+    const nearbyAppId = findAppId(process.cwd());
+    if (nearbyAppId !== null) {
+      note(
+        `[greenlight] Running in user mode (your own grants) inside an app directory. Pass --app ${nearbyAppId} to run on the app's grants instead.`
+      );
+    }
+  }
+  const body = opts.appId !== void 0 ? { app_id: opts.appId } : {};
+  const res = await jsonRequest("POST", `${apiBase}/api/cli/run-context`, { token, body });
+  ensureOk(res, "Could not resolve the run contract");
+  const contract = parseRunContract(res.body);
+  if ((contract.integrations ?? []).some((i) => i.local === "live_proxy")) {
+    const minted = await jsonRequest("POST", `${apiBase}/api/cli/proxy-token`, { token, body });
+    ensureOk(minted, "Could not mint the local proxy token");
+    const dataKey = readString(minted.body, "data_key");
+    const mintedExpiresAt = readString(minted.body, "expires_at");
+    if (dataKey === void 0) {
+      throw new CliError("Proxy-token response is malformed (missing data_key).");
+    }
+    contract.env = {
+      ...contract.env,
+      GREENLIGHT_DATA_KEY: dataKey,
+      GREENLIGHT_PROXY_URL: `${apiBase}/proxy`
+    };
+    if (mintedExpiresAt && new Date(mintedExpiresAt) < new Date(contract.expires_at)) {
+      contract.expires_at = mintedExpiresAt;
+    }
+  }
+  const userEnv = { ...opts.envFile ? parseEnvFile(opts.envFile) : {}, ...opts.env };
+  contract.env = { ...userEnv, ...contract.env };
+  note(
+    `
+greenlight run \u2014 ${contract.app_slug ?? "your granted integrations (user mode)"} (local)`
+  );
+  for (const line of formatSummary(contract)) note(line);
+  note(`Credentials valid until ${contract.expires_at}.
+`);
+  return spawnChild(devCommand, contract);
+}
+
+// packages/cli/src/cli/payload.ts
+import { readFileSync as readFileSync3 } from "node:fs";
 var PAYLOAD_FILE_FIELD = "__payload_file";
 function payloadFileField() {
   return PAYLOAD_FILE_FIELD;
@@ -16228,7 +16534,7 @@ function payloadReadError(spec, cause) {
   return err;
 }
 function defaultReadFile(path) {
-  return readFileSync2(path, "utf8");
+  return readFileSync3(path, "utf8");
 }
 function defaultStdinIsTTY() {
   return process.stdin.isTTY === true;
@@ -16313,7 +16619,7 @@ var MCP_COMMANDS = {
   },
   "integrations list": {
     tool: "listGrantableIntegrations",
-    summary: "List integrations you can grant an app.",
+    summary: "List integrations grantable to an app or requestable personally.",
     flags: {
       limit,
       cursor,
@@ -16322,6 +16628,25 @@ var MCP_COMMANDS = {
         type: "string",
         describe: "Filter by integration slug."
       }
+    }
+  },
+  request: {
+    tool: "requestCredentialAccess",
+    summary: "Request personal access to a credential (granted or pending in the output's status).",
+    flags: {
+      integration: {
+        field: "integration",
+        type: "string",
+        required: true,
+        describe: "Integration slug (from `integrations list`)."
+      },
+      credential: {
+        field: "credential_slug",
+        type: "string",
+        required: true,
+        describe: "Credential slug on that integration."
+      },
+      reason: { field: "reason", type: "string", describe: "Why you need it \u2014 shown to IT." }
     }
   },
   "env list": {
@@ -16660,6 +16985,10 @@ function flagsWithPayloadFile(spec) {
 // packages/cli/src/cli/help.ts
 var PAD = 38;
 var LOCAL_FLAG_HELP = {
+  run: {
+    summary: "Run a dev command with governed env injected \u2014 app mode with --app, else user mode.",
+    flags: RUN_FLAGS
+  },
   preview: { summary: "Emit a single-use preview URL for the app.", flags: PREVIEW_FLAGS },
   "repo clone": {
     summary: "Clone the app repo with a minted token (never printed).",
@@ -16677,7 +17006,10 @@ var AUTH_COMMANDS = [
   ["logout", "Remove the stored CLI credentials."]
 ];
 var LOCAL_COMMANDS = [
-  ["run -- <cmd>", "Run a dev command with the app's env contract injected."],
+  [
+    "run [--app <id>] -- <cmd>",
+    "Run a dev command: --app injects the app's env contract; no flag runs on your own granted integrations (user mode). Extra vars: --env K=V, --env-file <p>."
+  ],
   ["repo clone --app <id> [--dir <d>]", "Clone the app repo with a minted token (never printed)."],
   [
     "repo refresh --app <id> [--dir <d>]",
@@ -16763,47 +17095,6 @@ function cmdLogout(apiBase) {
 
 // packages/cli/src/commands/pair.ts
 import { createHash as createHash2, randomBytes as randomBytes3 } from "node:crypto";
-
-// packages/cli/src/http.ts
-var REQUEST_TIMEOUT_MS = 3e4;
-async function jsonRequest(method, url2, opts = {}) {
-  const headers = {
-    accept: "application/json",
-    "user-agent": userAgent()
-  };
-  if (opts.body !== void 0) headers["content-type"] = "application/json";
-  if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
-  let res;
-  let text;
-  try {
-    res = await fetch(url2, {
-      method,
-      headers,
-      body: opts.body === void 0 ? void 0 : JSON.stringify(opts.body),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? REQUEST_TIMEOUT_MS)
-    });
-    text = await res.text();
-  } catch (err) {
-    throw new CliError(`Request failed: ${method} ${url2} \u2014 ${describeFetchError(err)}`);
-  }
-  let parsed;
-  try {
-    parsed = text ? JSON.parse(text) : {};
-  } catch {
-    parsed = { raw: text };
-  }
-  return { status: res.status, body: parsed };
-}
-function describeFetchError(err) {
-  if (err instanceof DOMException && err.name === "TimeoutError") return "timed out";
-  if (err instanceof Error) {
-    const cause = err.cause;
-    return cause instanceof Error ? cause.message : err.message;
-  }
-  return String(err);
-}
-
-// packages/cli/src/commands/pair.ts
 var POLL_INTERVAL_MS = 2e3;
 var POLL_TIMEOUT_MS = 10 * 60 * 1e3;
 var sha256 = (s) => createHash2("sha256").update(s, "utf8").digest("hex");
@@ -16879,229 +17170,6 @@ function timeoutError(deliveryMissed) {
   return new CliError(
     deliveryMissed ? "Pairing was approved but the one-time credential was not received. Run `greenlight pair` again." : "Timed out waiting for approval. Run `greenlight pair` again."
   );
-}
-
-// packages/cli/src/oauth/session.ts
-var EXPIRY_SKEW_MS = 90 * 1e3;
-async function getAccessToken(apiBase, opts = {}) {
-  const override = process.env["GREENLIGHT_CLI_TOKEN"];
-  if (override) return override;
-  const record2 = loadOAuthRecord(apiBase);
-  const accessToken = record2.tokens?.access_token;
-  if (!accessToken) throw notSignedInError();
-  if (!opts.forceRefresh && !nearExpiry(record2)) return accessToken;
-  return refresh(apiBase, record2);
-}
-function nearExpiry(record2) {
-  const expiresIn = record2.tokens?.expires_in;
-  if (expiresIn === void 0 || record2.tokensSavedAt === void 0) return false;
-  return record2.tokensSavedAt + expiresIn * 1e3 - EXPIRY_SKEW_MS <= Date.now();
-}
-async function refresh(apiBase, record2) {
-  const refreshToken = record2.tokens?.refresh_token;
-  if (!refreshToken || !record2.client) throw sessionExpiredError();
-  let next;
-  try {
-    const info = await discoverOAuthServerInfo(apiBase);
-    next = await refreshAuthorization(info.authorizationServerUrl, {
-      metadata: info.authorizationServerMetadata,
-      clientInformation: record2.client,
-      refreshToken
-    });
-  } catch (err) {
-    if (isNetworkError(err)) {
-      throw new CliError(
-        "Could not reach Greenlight to refresh your session. Check your connection and retry."
-      );
-    }
-    throw sessionExpiredError();
-  }
-  saveOAuthRecord(apiBase, { ...record2, tokens: next, tokensSavedAt: Date.now() });
-  return next.access_token;
-}
-function isNetworkError(err) {
-  if (!(err instanceof Error)) return false;
-  const cause = err.cause;
-  const causeCode = cause instanceof Error && typeof cause.code === "string" ? cause.code : "";
-  const text = `${err.name} ${err.message} ${causeCode}`;
-  return err.name === "TimeoutError" || /fetch failed|network|timed?[ -]?out/i.test(text) || ["ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].some(
-    (c) => text.includes(c)
-  );
-}
-
-// packages/cli/src/run-contract.ts
-import { spawn } from "node:child_process";
-import { readFileSync as readFileSync3 } from "node:fs";
-import { dirname as dirname2, join as join2, resolve } from "node:path";
-var MAX_TIMER_MS = 2147483647;
-var INTEGRATION_LABEL = {
-  live_raw: "live (raw, injected)",
-  live_proxy: "live (proxy token)",
-  fixtures_policy_off: "fixtures (local dev off)",
-  fixtures_user_delegated: "fixtures (user-delegated)"
-};
-var RESOURCE_LABEL = {
-  live_sas: "live (short-TTL SAS)",
-  fixtures_inspect: "fixtures + inspectAppDb",
-  pending: "pending (provisioning)"
-};
-function readAppId(cwd) {
-  let dir = resolve(cwd);
-  for (let i = 0; i < 8; i += 1) {
-    try {
-      const text = readFileSync3(join2(dir, "greenlight.yml"), "utf8");
-      const appId = text.match(/^app_id:\s*["']?([^"'\s#]+)/m)?.[1];
-      if (appId) return appId;
-      throw new CliError("greenlight.yml has no app_id. Register the app first.");
-    } catch (err) {
-      if (err instanceof CliError) throw err;
-    }
-    const parent = dirname2(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  throw new CliError(
-    "No greenlight.yml found in this directory or its parents. Run from your app repo."
-  );
-}
-function formatSummary(contract) {
-  const lines = [];
-  for (const i of contract.integrations ?? []) {
-    lines.push(`  ${i.integration}: ${INTEGRATION_LABEL[i.local] ?? i.local}`);
-  }
-  for (const r of contract.resources ?? []) {
-    lines.push(`  ${r.kind}: ${RESOURCE_LABEL[r.local] ?? r.local}`);
-  }
-  return lines;
-}
-function parseRunContract(body) {
-  const record2 = asRecord(body);
-  const appSlug = record2["app_slug"];
-  const expiresAt = record2["expires_at"];
-  if (typeof appSlug !== "string" || typeof expiresAt !== "string") {
-    throw new CliError("Run contract response is malformed (missing app_slug/expires_at).");
-  }
-  const env = {};
-  for (const [key, value] of Object.entries(asRecord(record2["env"]))) {
-    if (typeof value === "string") env[key] = value;
-  }
-  return {
-    app_slug: appSlug,
-    expires_at: expiresAt,
-    env,
-    integrations: asIntegrations(record2["integrations"]),
-    resources: asResources(record2["resources"])
-  };
-}
-function asIntegrations(value) {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry2) => {
-    const r = asRecord(entry2);
-    return typeof r["integration"] === "string" && typeof r["local"] === "string" ? [{ integration: r["integration"], local: r["local"] }] : [];
-  });
-}
-function asResources(value) {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry2) => {
-    const r = asRecord(entry2);
-    return typeof r["kind"] === "string" && typeof r["local"] === "string" ? [{ kind: r["kind"], local: r["local"] }] : [];
-  });
-}
-function spawnChild(devCommand, contract) {
-  const [cmd, ...args] = devCommand;
-  if (cmd === void 0) throw new CliError("Usage: greenlight run -- <command> [args\u2026]");
-  const child = spawn(cmd, args, {
-    stdio: "inherit",
-    env: { ...process.env, ...contract.env },
-    shell: process.platform === "win32"
-  });
-  const restartTimer = scheduleExpiryNotice(contract.expires_at, () => child.killed === false);
-  const forward = (sig) => () => child.kill(sig);
-  const onSigint = forward("SIGINT");
-  const onSigterm = forward("SIGTERM");
-  process.on("SIGINT", onSigint);
-  process.on("SIGTERM", onSigterm);
-  return new Promise((resolvePromise, reject) => {
-    child.on("error", (err) => {
-      cleanup();
-      reject(new CliError(`Failed to start \`${cmd}\`: ${err.message}`));
-    });
-    child.on("exit", (code, signal) => {
-      cleanup();
-      resolvePromise(signal ? 1 : code ?? 0);
-    });
-    function cleanup() {
-      if (restartTimer) clearTimeout(restartTimer);
-      process.off("SIGINT", onSigint);
-      process.off("SIGTERM", onSigterm);
-    }
-  });
-}
-function scheduleExpiryNotice(expiresAt, stillRunning) {
-  const ms = new Date(expiresAt).getTime() - Date.now();
-  if (!Number.isFinite(ms) || ms <= 0 || ms > MAX_TIMER_MS) return null;
-  const timer = setTimeout(() => {
-    if (stillRunning()) {
-      process.stderr.write(
-        "\n[greenlight] Local credentials have expired. Proxy/blob calls will start failing \u2014 restart `greenlight run` to mint fresh ones.\n"
-      );
-    }
-  }, ms);
-  if (typeof timer.unref === "function") timer.unref();
-  return timer;
-}
-
-// packages/cli/src/commands/run.ts
-function ensureOk(res, context) {
-  if (res.status === 401) throw sessionExpiredError();
-  if (res.status === 403) {
-    throw forbiddenError(
-      "This CLI session is not scoped to this app. Re-pair from an owner/co-owner."
-    );
-  }
-  if (res.status !== 200) {
-    const msg = readString(res.body, "message") ?? `HTTP ${res.status}`;
-    throw new CliError(`${context}: ${msg}`);
-  }
-}
-async function cmdRun(apiBase, devCommand) {
-  if (devCommand.length === 0) {
-    throw new CliError("Usage: greenlight run -- <command> [args\u2026]");
-  }
-  const token = await getAccessToken(apiBase);
-  const appId = readAppId(process.cwd());
-  const res = await jsonRequest("POST", `${apiBase}/api/cli/run-context`, {
-    token,
-    body: { app_id: appId }
-  });
-  ensureOk(res, "Could not resolve the run contract");
-  const contract = parseRunContract(res.body);
-  if ((contract.integrations ?? []).some((i) => i.local === "live_proxy")) {
-    const minted = await jsonRequest("POST", `${apiBase}/api/cli/proxy-token`, {
-      token,
-      body: { app_id: appId }
-    });
-    ensureOk(minted, "Could not mint the local proxy token");
-    const dataKey = readString(minted.body, "data_key");
-    const mintedExpiresAt = readString(minted.body, "expires_at");
-    if (dataKey === void 0) {
-      throw new CliError("Proxy-token response is malformed (missing data_key).");
-    }
-    contract.env = {
-      ...contract.env,
-      GREENLIGHT_DATA_KEY: dataKey,
-      GREENLIGHT_PROXY_URL: `${apiBase}/proxy`
-    };
-    if (mintedExpiresAt && new Date(mintedExpiresAt) < new Date(contract.expires_at)) {
-      contract.expires_at = mintedExpiresAt;
-    }
-  }
-  note(`
-greenlight run \u2014 ${contract.app_slug} (local)`);
-  for (const line of formatSummary(contract)) note(line);
-  note(`Credentials valid until ${contract.expires_at}.
-`);
-  return spawnChild(devCommand, contract);
 }
 
 // packages/cli/src/commands/whoami.ts
@@ -17259,6 +17327,52 @@ function defaultOpenBrowser(url2) {
 
 // packages/cli/src/index.ts
 var SINGLE_WORD_AUTH = /* @__PURE__ */ new Set(["login", "pair", "whoami", "logout"]);
+function parseRunArgs(after) {
+  const opts = { env: {} };
+  const value = (i2, flag) => {
+    const v = after[i2 + 1];
+    if (v === void 0)
+      throw new CliError(`${flag} requires a value.`, "validation.body_invalid", 2);
+    return v;
+  };
+  let i = 0;
+  while (i < after.length) {
+    const arg = after[i];
+    if (arg === "--") {
+      i += 1;
+      break;
+    }
+    if (arg === "--app") {
+      opts.appId = value(i, "--app");
+      i += 2;
+      continue;
+    }
+    if (arg === "--env") {
+      const pair = value(i, "--env");
+      const eq = pair.indexOf("=");
+      if (eq <= 0) {
+        throw new CliError("--env expects KEY=VALUE.", "validation.body_invalid", 2);
+      }
+      opts.env[pair.slice(0, eq)] = pair.slice(eq + 1);
+      i += 2;
+      continue;
+    }
+    if (arg === "--env-file") {
+      opts.envFile = value(i, "--env-file");
+      i += 2;
+      continue;
+    }
+    if (arg?.startsWith("-")) {
+      throw new CliError(
+        `Unknown run flag: ${arg}. See \`greenlight run --help\`, or put the dev command after \`--\`.`,
+        "validation.unknown_flag",
+        2
+      );
+    }
+    break;
+  }
+  return { opts, dev: after.slice(i) };
+}
 function resolveCommand(tokens) {
   const first = tokens[0] ?? "";
   const second = tokens[1];
@@ -17272,12 +17386,12 @@ async function main(argv) {
   if (cmdIdx !== -1 && argv[cmdIdx] === "run") {
     const after = argv.slice(cmdIdx + 1);
     if (after[0] === "--help" || after[0] === "-h") {
-      process.stdout.write(`${helpText()}
+      process.stdout.write(`${resolveCommandHelp("run") ?? helpText()}
 `);
       return 0;
     }
-    const dev = after[0] === "--" ? after.slice(1) : after;
-    return cmdRun(resolveApiBase(), dev);
+    const { opts, dev } = parseRunArgs(after);
+    return cmdRun(resolveApiBase(), opts, dev);
   }
   const debug2 = argv.includes("--debug");
   const args = argv.filter((a) => a !== "--debug");

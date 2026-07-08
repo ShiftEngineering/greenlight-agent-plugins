@@ -147,25 +147,25 @@ succeeds through it.
 
 **CLI ↔ MCP equivalence** — builder goals, callable from either surface:
 
-| Goal                                                          | MCP tool                                                                  | `greenlight` CLI                                |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- |
-| Register a new app                                            | `registerApp`                                                             | `apps register`                                 |
-| List apps                                                     | `listApps`                                                                | `apps list`                                     |
-| App detail / live state                                       | `getApp`                                                                  | `apps show --app <id>`                          |
-| Provision a DB / blob, add a workload, request data access    | edit `greenlight.yml` → PR → merge                                        | —                                               |
-| Discover grantable integrations / credential slugs            | `listGrantableIntegrations`                                               | `integrations list`                             |
-| Read declared env (names/values)                              | `envList`                                                                 | `env list --app <id>`                           |
-| Set / remove env values                                       | `envSet` / `envRemove`                                                    | `env set` / `env rm`                            |
-| Open / merge a PR                                             | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                          |
-| Pipeline status (`--wait` to poll, `detail: 'full'` to debug) | `getPipelineRun`                                                          | `pipeline --app <id> …`                         |
-| Pod logs                                                      | `getLogs`                                                                 | `logs --app <id>`                               |
-| Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
-| Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose` |
-| Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                         |
-| Refresh an expired repo token on a checkout                   | `getRepoAccess` → `git remote set-url`                                    | `repo refresh --app <id> [--dir <d>]`           |
-| Run the app locally (real values, no file on disk)            | —                                                                         | `run -- <cmd>` (after `pair`/`login`)           |
-| See a deployed app in a browser (render, click, screenshot)   | `getAppPreviewUrl`                                                        | `preview --app <id>`                            |
-| Share / unshare app ownership                                 | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                             |
+| Goal                                                          | MCP tool                                                                  | `greenlight` CLI                                   |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
+| Register a new app                                            | `registerApp`                                                             | `apps register`                                    |
+| List apps                                                     | `listApps`                                                                | `apps list`                                        |
+| App detail / live state                                       | `getApp`                                                                  | `apps show --app <id>`                             |
+| Provision a DB / blob, add a workload, request data access    | edit `greenlight.yml` → PR → merge                                        | —                                                  |
+| Discover grantable integrations / credential slugs            | `listGrantableIntegrations`                                               | `integrations list`                                |
+| Read declared env (names/values)                              | `envList`                                                                 | `env list --app <id>`                              |
+| Set / remove env values                                       | `envSet` / `envRemove`                                                    | `env set` / `env rm`                               |
+| Open / merge a PR                                             | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                             |
+| Pipeline status (`--wait` to poll, `detail: 'full'` to debug) | `getPipelineRun`                                                          | `pipeline --app <id> …`                            |
+| Pod logs                                                      | `getLogs`                                                                 | `logs --app <id>`                                  |
+| Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`            |
+| Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose`    |
+| Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                            |
+| Refresh an expired repo token on a checkout                   | `getRepoAccess` → `git remote set-url`                                    | `repo refresh --app <id> [--dir <d>]`              |
+| Run locally — app env with `--app`, else your own grants      | —                                                                         | `run [--app <id>] -- <cmd>` (after `pair`/`login`) |
+| See a deployed app in a browser (render, click, screenshot)   | `getAppPreviewUrl`                                                        | `preview --app <id>`                               |
+| Share / unshare app ownership                                 | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                                |
 
 CLI-only helpers: `greenlight doctor`, `greenlight whoami`, `greenlight logout`. Recover flag
 detail from `greenlight help` or `greenlight <command> --help` — never guess.
@@ -248,11 +248,13 @@ Ship progress:
 
 <!-- cancelled-tools-note:start -->
 
-There are **no imperative infrastructure tools** — no `resource.add`, no `requestPermissions`, no
-`workload.add` / `workload.update` / `workload.remove`. Anyone who remembers those from an older
-Greenlight is remembering a model that no longer exists. Every resource, workload, and grant change
-is a `greenlight.yml` edit applied by a merge. (This paragraph is the _only_ place those names
-appear, precisely to say they are gone.)
+There are **no imperative infrastructure tools for an app** — no `resource.add`, no
+`requestPermissions`, no `workload.add` / `workload.update` / `workload.remove`. Anyone who
+remembers those from an older Greenlight is remembering a model that no longer exists. Every
+resource, workload, and **app** grant change is a `greenlight.yml` edit applied by a merge. (This
+paragraph is the _only_ place those names appear, precisely to say they are gone. The one
+imperative grant request that _does_ exist — `requestCredentialAccess` — requests the **user's own
+personal** access, never the app's; see _Personal data access_.)
 
 <!-- cancelled-tools-note:end -->
 
@@ -309,6 +311,27 @@ merges; an IT-required grant deploys in `pending` and the proxy returns `403` fo
 approves out of band (no redeploy needed). Watch grant status in `getApp`; the dedicated
 `getPermissions` tool is still being wired.
 
+## Personal data access (no app needed)
+
+When the user wants governed data for **local work with no app** — a script, a notebook, a
+visualizer they may never ship — do not register an app or edit a manifest. Request access under
+the **user's own identity** instead:
+
+- **Discover** with `listGrantableIntegrations`: each credential carries a `request_example` and
+  the calling user's own `caller_grant_status` (none / pending / granted / denied / revoked), so
+  never blind-re-request.
+- **Request** with `requestCredentialAccess({ integration, credential_slug, reason })` (or
+  `greenlight request --integration <slug> --credential <slug> --reason "..."`). The result is
+  `granted` immediately when the credential auto-approves, else `pending` for IT review — tell the
+  user to expect IT approval in that case.
+- **Use** with `greenlight run -- <cmd>` (no `--app`): the process gets `GREENLIGHT_PROXY_URL` + a
+  user-scoped `GREENLIGHT_DATA_KEY` resolving the user's own granted integrations through the same
+  governed proxy. No credential lands on the laptop for proxied integrations.
+
+An app's access and the user's personal access are separate authorities: an app never runs on the
+user's grants, and holding personal access never activates an app grant. When personal work
+graduates into a real app, `registerApp` and declare the app's own `grants:` in the manifest.
+
 ## Show your work: the local preview loop
 
 Building is a conversation held through the running app. The citizen developer can't read your
@@ -361,12 +384,25 @@ give them a download or a selectable text area — not only a "copy" button.
 The one CLI verb with no MCP equivalent — it delivers real secret values into a local process,
 which never crosses MCP.
 
-**`greenlight run -- <your dev command>`** (e.g. `greenlight run -- npm run dev`) is the standard —
-and only — local-run entry. It resolves the app's env contract server-side and injects the values
-**into your dev process only**: no `.env.local`, no file on disk, and no secret ever crosses MCP.
-App code is byte-identical to the deployed pod — same env-var names, different values — so always
-read env vars and never hardcode endpoints. There is **no `envPull` tool**; it was retired
-permanently — do not call it.
+**`greenlight run`** is the standard — and only — local-run entry, with an explicit mode:
+
+- **App mode — `greenlight run --app <app_id> -- <your dev command>`** (e.g.
+  `greenlight run --app 3f25… -- npm run dev`) resolves the **app's** env contract server-side —
+  the same grants the deployed pod runs on, so local access mirrors production exactly. Use this
+  whenever you are developing an app.
+- **User mode — `greenlight run -- <your dev command>`** (no `--app`) resolves the **user's own
+  personal grants** instead (see _Personal data access_) — for no-app local work. It never injects
+  `DATABASE_URL` or `STORAGE_SAS_URL` (app resources are app-scoped). Omitting `--app` inside an
+  app checkout prints a warning and proceeds in user mode — mode is never guessed from the
+  directory, so pass `--app` explicitly for app work.
+- Extra local vars flow through unchanged: the ambient shell env, repeatable `--env KEY=VAL`, and
+  `--env-file <path>` — with Greenlight-managed names always injected last (they cannot be
+  clobbered).
+
+Either mode injects values **into your dev process only**: no `.env.local`, no file on disk, no
+local server, and no secret ever crosses MCP. App code is byte-identical to the deployed pod — same
+env-var names, different values — so always read env vars and never hardcode endpoints. There is
+**no `envPull` tool**; it was retired permanently — do not call it.
 
 **Know what's live vs. fixtures before you run.** Read `getApp` (grant `delivery_mode` +
 `local_dev_enabled`), and `greenlight run` prints a per-dependency status line at startup. At MVP:
@@ -377,10 +413,11 @@ permanently — do not call it.
   mints a short-lived `purpose: 'local'` token and points the app at the real public proxy, so calls
   go through the unchanged grant-check + credential-swap + audit path. No upstream secret on the
   laptop.
-- **Proxied integration with `local_dev_enabled: false`** → IT withholds it; calls get a `403`,
-  so author a fixture for the loop.
+- **Proxied integration with `local_dev_enabled: false`** → IT withholds it in app mode; calls get
+  a `403`, so author a fixture for the loop. (In **user mode** a granted proxied integration is
+  always live — the flag gates only raw credential delivery, and proxied calls expose no secret.)
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
-- **Blob** → a freshly minted short-TTL SAS. Live.
+- **Blob** → a freshly minted short-TTL SAS. Live (app mode only).
 
 For anything fixture-only — or when the control plane is unreachable (corporate egress block) —
 write your own fixtures/mocks for that dependency and keep iterating, then confirm the real wiring
@@ -391,8 +428,10 @@ and tell the user that's what you did.
 ## Current release availability
 
 The running MVP is still filling in a few surfaces. Not available yet: `getPolicies()` (infer
-enforced rules from pipeline output and the manifest), `getPermissions()` (read grant/resource/env
-state from `getApp`), `curlApp()` (use a `getAppPreviewUrl` session for response-level checks), and
+enforced rules from pipeline output and the manifest), `getPermissions()` (read an **app's**
+grant/resource/env state from `getApp`; the user's own personal grant status is per credential on
+`listGrantableIntegrations` — see _Personal data access_), `curlApp()` (use a `getAppPreviewUrl`
+session for response-level checks), and
 `addCoOwner()`/the share flow (don't promise collaborator adds until it ships). Full MCP OAuth
 bearer enforcement and session-scoped ownership are still being wired — complete sign-in when
 prompted, but don't assume every co-owner path is live. A `tool not found` for one of these means
