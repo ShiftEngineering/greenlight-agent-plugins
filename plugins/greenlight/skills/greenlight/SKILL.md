@@ -278,11 +278,10 @@ workloads:
     dockerfile: Dockerfile
     port: 8080
     routes: ['/*']
-    compute: # optional; START by omitting this — the baseline fits most apps. Add it only after a
-      # deploy shows you need more (OOMKilled → raise memory; CPU throttling or slow starts →
-      # raise cpu), and raise one step at a time. Caps are org-set (default cpu<=2, memory<=4Gi).
-      cpu: '500m'
-      memory: '512Mi'
+    # omit compute: — baseline (25m/128Mi req, 500m/512Mi lim) fits most apps.
+    # Declaring compute sets request=limit and reserves that capacity even when idle.
+    # Add only after evidence (OOMKilled → memory; CPU throttle / slow starts → cpu).
+    # Caps are org-set (default cpu<=2, memory<=4Gi). See Packaging → Sizing compute.
 
 resources: # one entry max per kind at MVP
   - kind: postgres
@@ -536,12 +535,23 @@ and route. The contract (some items pipeline-enforced, others recommended):
   or `443`.
 - **Sizing compute.** Every app namespace has a `ResourceQuota` ceiling you neither set nor see —
   Greenlight sizes it to admit any workload up to the org compute cap (default cpu 2 / memory 4Gi),
-  including the extra pod a rolling update runs. **Start with no `compute:` block** and raise only
-  on evidence — `OOMKilled` (raise `memory`), sustained CPU throttling or slow responses (raise
-  `cpu`), a cold start failing the readiness probe — one step at a time. Any value within the cap
-  always deploys; a value above it is rejected at PR time (`POLICY_VIOLATION`,
-  `workload-compute-limit`), never at runtime. Full reference:
+  including the extra pod a rolling update runs. **Start with no `compute:` block** — the baseline
+  (25m CPU / 128Mi memory requests, 500m / 512Mi limits) fits static UIs and typical Node/Python
+  APIs. Declaring `compute:` sets **request = limit** (Guaranteed QoS), so a copy-pasted
+  `500m`/`512Mi` reserves half a core even when the app is idle. Raise only on evidence —
+  `OOMKilled` (raise `memory`), sustained CPU throttling or slow responses (raise `cpu`), a cold
+  start failing the readiness probe — one step at a time:
+
+  | App shape                                    | Starting point                                                       |
+  | -------------------------------------------- | -------------------------------------------------------------------- |
+  | Static / mostly client UI                    | omit `compute:` (or `cpu: 25m` / `memory: 128Mi` if you must set it) |
+  | Typical API + light DB                       | omit `compute:`                                                      |
+  | Heavier server work (PDF, scraping, fan-out) | `cpu: 100m–250m` / `memory: 256Mi–512Mi`                             |
+
+  Any value within the cap always deploys; a value above it is rejected at PR time
+  (`POLICY_VIOLATION`, `workload-compute-limit`), never at runtime. Full reference:
   [docs/34 § compute](https://github.com/ShiftEngineering/greenlight/blob/main/docs/34-workloads.md).
+
 - **Runtime security posture:** the namespace enforces Pod Security Admission `baseline` with
   `restricted` warnings/audits. Pods run with user namespaces (`hostUsers: false`),
   `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, and
