@@ -297,7 +297,16 @@ grants: # integration access requests
 env: # names only; values go through envSet
   - { name: APPROVAL_SECRET, sensitive: true }
   - { name: FEATURE_FLAGS, sensitive: false }
+
+tags: # optional org-wide category labels for the /apps catalog filter
+  - finance # prefer a fitting term from the suggested set: productivity, marketing,
+  - productivity # finance, project management, games, test — else pick a relevant custom tag
 ```
+
+Set `tags:` to the category the app belongs to so it groups with its peers in the `/apps`
+catalog filter. Reach for the suggested vocabulary first (`productivity`, `marketing`, `finance`,
+`project management`, `games`, `test`); when none fit, choose a short relevant tag of your own.
+Tags apply on merge like the rest of the manifest and are read-only in the dashboard.
 
 Before you add or change a `grants:` entry, call `listGrantableIntegrations` (or `greenlight
 integrations list`) to see which integrations and credential slugs the org has registered, whether
