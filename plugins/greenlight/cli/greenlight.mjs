@@ -16554,6 +16554,7 @@ function stripOneTrailingNewline(value) {
 
 // packages/cli/src/cli/registry.ts
 var KNOWLEDGE_SCOPES = ["org", "integration", "app"];
+var FEEDBACK_CATEGORIES = ["bug", "friction", "suggestion", "other"];
 var limit = { field: "limit", type: "number", describe: "Page size." };
 var cursor = { field: "cursor", type: "string", describe: "Opaque page cursor." };
 var appRequired = {
@@ -16864,6 +16865,28 @@ var MCP_COMMANDS = {
       describe: "Markdown proposal body."
     },
     validate: validateKnowledgeParent
+  },
+  feedback: {
+    tool: "submitFeedback",
+    summary: "File a Greenlight platform-experience report from stdin or --body-file.",
+    flags: {
+      category: {
+        field: "category",
+        type: "enum",
+        enumValues: FEEDBACK_CATEGORIES,
+        required: true,
+        describe: "bug | friction | suggestion | other."
+      },
+      title: { field: "title", type: "string", required: true, describe: "One-line summary." },
+      app: appOptional
+    },
+    payload: {
+      field: "body_md",
+      displayName: "body",
+      fileFlag: "body-file",
+      required: true,
+      describe: "Markdown report body."
+    }
   },
   "pr open": {
     tool: "createPullRequest",
