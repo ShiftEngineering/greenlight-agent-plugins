@@ -130,9 +130,12 @@ Greenlight's builder surface is reachable two equivalent ways — use whichever 
 
 - **MCP tools** — `listApps`, `getApp`, `getPipelineRun`, … in your tool list.
 - **The `greenlight` CLI** — a bundled client that calls the **same `/mcp` tools** but holds its
-  **own OAuth credential with working refresh**. Resolve it at
-  `${CLAUDE_PLUGIN_ROOT}/cli/greenlight.mjs` (Claude Code; the per-runtime equivalent elsewhere),
-  with a Node runtime present. Never re-author it — it is the trusted bundled artifact.
+  **own OAuth credential with working refresh**. On Claude Code the plugin's `bin/` directory is
+  already on the Bash tool's PATH, so invoke it as plain `greenlight …` — no path needed. If the
+  bare command isn't found (another runtime, or an older client), run the bundled artifact
+  directly with Node: `node "${CLAUDE_PLUGIN_ROOT}/bin/greenlight.mjs"` on Claude Code, or
+  `bin/greenlight.mjs` under wherever your runtime installed the plugin. Either way a Node
+  runtime must be present. Never re-author it — it is the trusted bundled artifact.
 
 **When MCP auth is failing, switch to the CLI — that is exactly what it is for.** Coding-agent MCP
 OAuth clients refresh unreliably; the CLI refreshes its own credential, so the same operation
@@ -186,7 +189,7 @@ checkout; the register response's `repo_url` is intentionally token-free.
 
 **If the CLI is missing or stale**, try in order: (1) the plugin bundle (this artifact);
 (2) control-plane-hosted — `curl` the `/cli/install.sh` route on the same host as your MCP
-endpoint; (3) the public marketplace repo's raw `plugins/greenlight/cli/greenlight.mjs`. **Output
+endpoint; (3) the public marketplace repo's raw `plugins/greenlight/bin/greenlight.mjs`. **Output
 contract:** stdout is machine JSON only, diagnostics go to stderr, and failures are the canonical
 `{ code, message, details?, next_steps?, request_id }` envelope with a stable non-zero exit
 (2 validation, 3 auth, 4 not-found/forbidden, 1 other). Add `--debug` for transport diagnostics.
