@@ -361,6 +361,11 @@ and redirect while a change still costs seconds instead of a deploy's minutes. W
      restarting per change.
    - **Other agents:** the IDE's embedded browser or preview pane pointed at the port; if you have
      no live pane at all, fall back to posting a screenshot of each changed screen into chat.
+   - **No browser tool at all** (no embedded pane, no browser extension — typical of remote or
+     headless CLI environments): render screens yourself with the Playwright CLI and headless
+     Chromium — `playwright screenshot --browser chromium --full-page "<url>" shot.png` — and post
+     each changed screen into chat. If the CLI isn't installed, run
+     `npx playwright install chromium` once, then `npx playwright screenshot …`.
 3. **After each meaningful change, show it and say what it is.** Render the changed screen and
    exercise the specific thing you changed — click the button, submit the form; "the page loads" is
    not showing your work. Narrate in product terms: "here's the approval screen — managers now see
@@ -729,7 +734,13 @@ Use these tools together:
   render the page, run its client-side JS, click through the exact flow, and screenshot it. For a
   response-level check (status / JSON), drive a `fetch` from that same browser session. Single use,
   5-minute expiry, confined to that one app's host: mint a fresh URL per browser context, and never
-  share one.
+  share one. **When no browser tool exists in your environment** (remote or headless CLI setups),
+  drive it with the Playwright CLI and headless Chromium instead: mint a fresh URL, run
+  `playwright screenshot --browser chromium --full-page "<preview-url>" page.png`, and read the
+  image — script clicks and typing through the `playwright` Node API when a flow needs interaction.
+  Playwright completes the one-time token → session-cookie exchange; a plain HTTP fetch (curl or a
+  WebFetch-style tool) drops the cookie, lands on the SSO login page, and burns the token — so a
+  URL any non-browser tool has touched is already consumed. Mint a new one.
 - `getLogs({ app_id, since?, filter? })` — bounded pod stdout/stderr with crash-loop context. Apps
   must log handler errors for this to help: a 500 that only returns JSON to the client leaves
   nothing in the pod log.
