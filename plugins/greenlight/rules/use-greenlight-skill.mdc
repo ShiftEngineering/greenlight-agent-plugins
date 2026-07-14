@@ -21,5 +21,5 @@ and show the app with `getAppPreviewUrl`) and which MCP tools to use for what (`
 each with a CLI equivalent. Skipping it leads to wrong tool usage and wrong sequencing.
 
 If your context was summarized or compacted, re-read the entire skill before continuing Greenlight
-work. Subagents must read it too — never hand Greenlight work to a subagent that has not read the
-full skill.
+work. When the core skill directs you to a focused bundled skill, read that focused skill in full
+before doing the task. Subagents must read the same applicable skills too.

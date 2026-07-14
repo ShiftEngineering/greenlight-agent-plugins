@@ -608,7 +608,9 @@ A granted integration reaches its upstream one of two ways, set per-integration 
   auth slot the upstream normally uses (`Authorization: Bearer`, `X-Api-Key`, `?apikey=`, or the
   secret side of a multi-header/basic shape — read the provider instructions from integration
   Knowledge / `getApp`). The proxy validates that key, swaps in the real credential in the same
-  slot, and audits the call — the app never holds the upstream credential.
+  slot, and audits the call — the app never holds the upstream credential. A connected database is
+  also proxied but is not an HTTP upstream; read the bundled
+  [connected-databases skill](../connected-databases/SKILL.md) before using one.
 - **Injected**: the bound credential is injected into the pod under the integration's fixed
   env-var name (shown by `getApp`). Read it from `process.env` and call the upstream with it.
 
@@ -616,6 +618,14 @@ Either way, never hardcode or commit a credential. For user-delegated (always pr
 integrations, forward the inbound `X-Greenlight-Actor-Token` request header to the proxy
 unchanged — never inspect, log, or store it; it is an opaque token the proxy exchanges for a
 user-scoped upstream credential.
+
+### Connected databases
+
+Before discovering a schema, writing a query, or handling a connected-database error, read the
+bundled [connected-databases skill](../connected-databases/SKILL.md) in full. It owns the Azure SQL
+query route, parameterization, result limits and conversion, session isolation, paging, write
+ambiguity, and retry contract. Keep following this core skill for the surrounding Greenlight grant,
+Knowledge, local-development, delivery, and verification workflow.
 
 _Which_ integrations exist and each one's delivery mode is customer-specific —
 `listGrantableIntegrations` enumerates them (with `delivery_mode` and `env_var_name` per
