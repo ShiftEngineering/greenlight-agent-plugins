@@ -232,8 +232,9 @@ The standard new-app loop:
    **Then verify the change actually does what the user asked** (see _Verifying a deployed app_)
    before you tell them anything is ready.
 
-Updating an app later is the same loop minus step 1: edit `greenlight.yml` and/or code, show the
-user locally, PR, merge, verify. **Every change ends with verification** — there is no "done" you
+Updating an app later is the same loop minus step 1: sync your checkout with `main` first (see
+_Sync with `main` before editing_), edit `greenlight.yml` and/or code, show the user
+locally, PR, merge, verify. **Every change ends with verification** — there is no "done" you
 report without having watched the requested behavior work.
 
 For any shipping change, copy this checklist and check items off as you go — it exists to stop the
@@ -241,6 +242,7 @@ two most-skipped steps (showing the user before shipping, and verifying after de
 
 ```
 Ship progress:
+- [ ] Checkout synced with main before editing (Sync with main before editing)
 - [ ] Change built and running locally (greenlight run)
 - [ ] User has seen it working in the preview (Show your work)
 - [ ] Env names declared + values set (no MISSING_ENV_VALUE at merge)
@@ -697,6 +699,11 @@ yourself. The governed change request then goes through MCP:
 
 Do **not** use `gh`, the GitHub API, or any other path to open or merge a PR — the change must flow
 through Greenlight so it is audited and policy-gated.
+
+### Sync with `main` before editing
+
+For new work, run `git -C <dir> checkout main && git -C <dir> pull origin main && git -C <dir> checkout -b feat/<change>`; when resuming, run `git -C <dir> checkout <feature-branch> && git -C <dir> fetch origin && git -C <dir> merge origin/main`.
+Merge rather than rebase; resolve conflicts and re-run the app locally before continuing.
 
 ## Recovering from a pipeline failure
 
