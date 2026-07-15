@@ -162,6 +162,7 @@ succeeds through it.
 | Open / merge a PR                                             | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                             |
 | Pipeline status (`--wait` to poll, `detail: 'full'` to debug) | `getPipelineRun`                                                          | `pipeline --app <id> …`                            |
 | Pod logs                                                      | `getLogs`                                                                 | `logs --app <id>`                                  |
+| Verify a deployed response                                    | `curlApp`                                                                 | `curl --app <id> --path <p>`                       |
 | Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`            |
 | Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose`    |
 | Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                            |
@@ -447,8 +448,7 @@ and tell the user that's what you did.
 The running MVP is still filling in a few surfaces. Not available yet: `getPolicies()` (infer
 enforced rules from pipeline output and the manifest), `getPermissions()` (read an **app's**
 grant/resource/env state from `getApp`; the user's own personal grant status is per credential on
-`listGrantableIntegrations` — see _Personal data access_), `curlApp()` (use a `getAppPreviewUrl`
-session for response-level checks), and
+`listGrantableIntegrations` — see _Personal data access_), and
 `addCoOwner()`/the share flow (don't promise collaborator adds until it ships). Full MCP OAuth
 bearer enforcement and session-scoped ownership are still being wired — complete sign-in when
 prompted, but don't assume every co-owner path is live. A `tool not found` for one of these means
@@ -727,27 +727,34 @@ missing, fix it, redeploy, and verify again — loop until the requested behavio
 
 Use these tools together:
 
-- **`getAppPreviewUrl({ app_id, path? })` — or `greenlight preview --app <id> [--path <p>]` — your
-  main verification tool today.** Mints a one-time URL you open in your own browser tool (IDE
+- **`curlApp({ app_id, path, method?, headers?, body?, follow_redirects? })` — or `greenlight curl
+--app <id> --path <p>` — the default response-level check.** It makes an authenticated request
+  to the deployed app as you and returns status, headers, body, timing, and whether the request
+  reached the app. Use it to assert the exact API or server behavior requested; request headers and
+  bodies on the CLI come from `--headers-file` / stdin / `--body-file`, never argv. Platform admins
+  may use `as_user` / `--as-user` to reproduce another same-org user's view; the selected user must
+  still have access to the app. On `app.unreachable`, inspect `details.hit_app`, then call
+  `getAppDiagnostics` and `getLogs` before retrying; other roles must not impersonate.
+- **`getAppPreviewUrl({ app_id, path? })` — or `greenlight preview --app <id> [--path <p>]` — for
+  browser behavior.** Mints a one-time URL you open in your own browser tool (IDE
   preview pane, Playwright, any headless browser). It signs you in through the SSO boundary with no
   interactive IdP login — the session is _you_, with your real identity and access — so you can
-  render the page, run its client-side JS, click through the exact flow, and screenshot it. For a
-  response-level check (status / JSON), drive a `fetch` from that same browser session. Single use,
-  5-minute expiry, confined to that one app's host: mint a fresh URL per browser context, and never
-  share one. **When no browser tool exists in your environment** (remote or headless CLI setups),
+  render the page, run its client-side JS, click through the exact flow, and screenshot it. Single
+  use, 5-minute expiry, confined to that one app's host: mint a fresh URL per browser context, and
+  never share one. **When no browser tool exists in your environment** (remote or headless CLI
+  setups),
   drive it with the Playwright CLI and headless Chromium instead: mint a fresh URL, run
   `playwright screenshot --browser chromium --full-page "<preview-url>" page.png`, and read the
   image — script clicks and typing through the `playwright` Node API when a flow needs interaction.
-  Playwright completes the one-time token → session-cookie exchange; a plain HTTP fetch (curl or a
-  WebFetch-style tool) drops the cookie, lands on the SSO login page, and burns the token — so a
-  URL any non-browser tool has touched is already consumed. Mint a new one.
+  Playwright completes the one-time token → session-cookie exchange. Do not give a preview URL to
+  curl, a plain HTTP fetch, or a WebFetch-style tool: it drops the cookie, lands on the SSO login
+  page, and burns the token. Use `curlApp` for response-level checks; if a non-browser tool touches
+  a preview URL, mint a new one.
 - `getLogs({ app_id, since?, filter? })` — bounded pod stdout/stderr with crash-loop context. Apps
   must log handler errors for this to help: a 500 that only returns JSON to the client leaves
   nothing in the pod log.
 - `getApp({ app_id })` — deployed state, grant/resource status, latest pipeline result.
 - `getMetrics({ app_id })` — recent CPU, memory, restart counts to spot resource pressure.
-- **`curlApp` is not available yet** — until it ships, use the preview session for response-level
-  checks too.
 
 Verifying is for _you_; putting the result in front of the citizen developer is the separate,
 equally required step — see _Show your work_.

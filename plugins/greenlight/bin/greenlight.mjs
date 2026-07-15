@@ -1360,12 +1360,12 @@ var require_errors = __commonJS({
       }
       return [E.schemaPath, schPath];
     }
-    function extraErrorProps(cxt, { params, message }, keyValues) {
+    function extraErrorProps(cxt, { params, message: message2 }, keyValues) {
       const { keyword, data, schemaValue, it } = cxt;
       const { opts, propertyName, topSchemaRef, schemaPath } = it;
       keyValues.push([E.keyword, keyword], [E.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
       if (opts.messages) {
-        keyValues.push([E.message, typeof message == "function" ? message(cxt) : message]);
+        keyValues.push([E.message, typeof message2 == "function" ? message2(cxt) : message2]);
       }
       if (opts.verbose) {
         keyValues.push([E.schema, schemaValue], [E.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
@@ -4185,11 +4185,11 @@ var require_core = __commonJS({
         }
         const valid = this.validate($schema, schema);
         if (!valid && throwOrLogError) {
-          const message = "schema is invalid: " + this.errorsText();
+          const message2 = "schema is invalid: " + this.errorsText();
           if (this.opts.validateSchema === "log")
-            this.logger.error(message);
+            this.logger.error(message2);
           else
-            throw new Error(message);
+            throw new Error(message2);
         }
         return valid;
       }
@@ -6890,8 +6890,8 @@ import { pathToFileURL } from "node:url";
 
 // packages/cli/src/errors.ts
 var CliError = class extends Error {
-  constructor(message, code = "cli.error", exitCode = 1) {
-    super(message);
+  constructor(message2, code = "cli.error", exitCode = 1) {
+    super(message2);
     this.code = code;
     this.exitCode = exitCode;
   }
@@ -6908,12 +6908,12 @@ var sessionExpiredError = () => new CliError(
   "auth.session_expired",
   3
 );
-var forbiddenError = (message) => new CliError(message, "auth.forbidden", 3);
+var forbiddenError = (message2) => new CliError(message2, "auth.forbidden", 3);
 
 // packages/cli/src/cli/args.ts
 var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function invalid(message, field) {
-  const err = new CliError(message, "validation.body_invalid", 2);
+function invalid(message2, field) {
+  const err = new CliError(message2, "validation.body_invalid", 2);
   if (field) err.details = { field };
   return err;
 }
@@ -6977,8 +6977,8 @@ function emit(payload) {
   process.stdout.write(`${JSON.stringify(payload)}
 `);
 }
-function note(message) {
-  process.stderr.write(`${message}
+function note(message2) {
+  process.stderr.write(`${message2}
 `);
 }
 function renderCliError(err) {
@@ -7531,14 +7531,14 @@ function prefixIssues(path, issues) {
     return iss;
   });
 }
-function unwrapMessage(message) {
-  return typeof message === "string" ? message : message?.message;
+function unwrapMessage(message2) {
+  return typeof message2 === "string" ? message2 : message2?.message;
 }
 function finalizeIssue(iss, ctx, config2) {
   const full = { ...iss, path: iss.path ?? [] };
   if (!iss.message) {
-    const message = unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
-    full.message = message;
+    const message2 = unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
+    full.message = message2;
   }
   delete full.inst;
   delete full.continue;
@@ -12459,8 +12459,8 @@ var ServerResultSchema = union([
   CreateTaskResultSchema
 ]);
 var McpError = class _McpError extends Error {
-  constructor(code, message, data) {
-    super(`MCP error ${code}: ${message}`);
+  constructor(code, message2, data) {
+    super(`MCP error ${code}: ${message2}`);
     this.code = code;
     this.data = data;
     this.name = "McpError";
@@ -12468,19 +12468,19 @@ var McpError = class _McpError extends Error {
   /**
    * Factory method to create the appropriate error type based on the error code and data
    */
-  static fromError(code, message, data) {
+  static fromError(code, message2, data) {
     if (code === ErrorCode.UrlElicitationRequired && data) {
       const errorData = data;
       if (errorData.elicitations) {
-        return new UrlElicitationRequiredError(errorData.elicitations, message);
+        return new UrlElicitationRequiredError(errorData.elicitations, message2);
       }
     }
-    return new _McpError(code, message, data);
+    return new _McpError(code, message2, data);
   }
 };
 var UrlElicitationRequiredError = class extends McpError {
-  constructor(elicitations, message = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
-    super(ErrorCode.UrlElicitationRequired, message, {
+  constructor(elicitations, message2 = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
+    super(ErrorCode.UrlElicitationRequired, message2, {
       elicitations
     });
   }
@@ -12566,15 +12566,15 @@ var Protocol = class {
             let queuedMessage;
             while (queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId)) {
               if (queuedMessage.type === "response" || queuedMessage.type === "error") {
-                const message = queuedMessage.message;
-                const requestId = message.id;
+                const message2 = queuedMessage.message;
+                const requestId = message2.id;
                 const resolver = this._requestResolvers.get(requestId);
                 if (resolver) {
                   this._requestResolvers.delete(requestId);
                   if (queuedMessage.type === "response") {
-                    resolver(message);
+                    resolver(message2);
                   } else {
-                    const errorMessage = message;
+                    const errorMessage = message2;
                     const error2 = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error2);
                   }
@@ -12713,16 +12713,16 @@ var Protocol = class {
       this._onerror(error2);
     };
     const _onmessage = this._transport?.onmessage;
-    this._transport.onmessage = (message, extra) => {
-      _onmessage?.(message, extra);
-      if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-        this._onresponse(message);
-      } else if (isJSONRPCRequest(message)) {
-        this._onrequest(message, extra);
-      } else if (isJSONRPCNotification(message)) {
-        this._onnotification(message);
+    this._transport.onmessage = (message2, extra) => {
+      _onmessage?.(message2, extra);
+      if (isJSONRPCResultResponse(message2) || isJSONRPCErrorResponse(message2)) {
+        this._onresponse(message2);
+      } else if (isJSONRPCRequest(message2)) {
+        this._onrequest(message2, extra);
+      } else if (isJSONRPCNotification(message2)) {
+        this._onnotification(message2);
       } else {
-        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message2)}`));
       }
     };
     await this._transport.start();
@@ -13332,12 +13332,12 @@ var Protocol = class {
    * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer
    * simply propagates the error.
    */
-  async _enqueueTaskMessage(taskId, message, sessionId) {
+  async _enqueueTaskMessage(taskId, message2, sessionId) {
     if (!this._taskStore || !this._taskMessageQueue) {
       throw new Error("Cannot enqueue task message: taskStore and taskMessageQueue are not configured");
     }
     const maxQueueSize = this._options?.maxTaskQueueSize;
-    await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
+    await this._taskMessageQueue.enqueue(taskId, message2, sessionId, maxQueueSize);
   }
   /**
    * Clears the message queue for a task and rejects any pending request resolvers.
@@ -13347,9 +13347,9 @@ var Protocol = class {
   async _clearTaskQueue(taskId, sessionId) {
     if (this._taskMessageQueue) {
       const messages = await this._taskMessageQueue.dequeueAll(taskId, sessionId);
-      for (const message of messages) {
-        if (message.type === "request" && isJSONRPCRequest(message.message)) {
-          const requestId = message.message.id;
+      for (const message2 of messages) {
+        if (message2.type === "request" && isJSONRPCRequest(message2.message)) {
+          const requestId = message2.message.id;
           const resolver = this._requestResolvers.get(requestId);
           if (resolver) {
             resolver(new McpError(ErrorCode.InternalError, "Task cancelled or completed"));
@@ -13594,9 +13594,9 @@ var ExperimentalClientTasks = class {
     };
     const stream = clientInternal.requestStream({ method: "tools/call", params }, resultSchema, optionsWithTask);
     const validator = clientInternal.getToolOutputValidator(params.name);
-    for await (const message of stream) {
-      if (message.type === "result" && validator) {
-        const result = message.result;
+    for await (const message2 of stream) {
+      if (message2.type === "result" && validator) {
+        const result = message2.result;
         if (!result.structuredContent && !result.isError) {
           yield {
             type: "error",
@@ -13627,7 +13627,7 @@ var ExperimentalClientTasks = class {
           }
         }
       }
-      yield message;
+      yield message2;
     }
   }
   /**
@@ -14461,8 +14461,8 @@ function checkResourceAllowed({ requestedResource, configuredResource }) {
 
 // node_modules/.pnpm/@modelcontextprotocol+sdk@1.29.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/auth/errors.js
 var OAuthError = class extends Error {
-  constructor(message, errorUri) {
-    super(message);
+  constructor(message2, errorUri) {
+    super(message2);
     this.errorUri = errorUri;
     this.name = this.constructor.name;
   }
@@ -14556,8 +14556,8 @@ var OAUTH_ERRORS = {
 
 // node_modules/.pnpm/@modelcontextprotocol+sdk@1.29.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js
 var UnauthorizedError = class extends Error {
-  constructor(message) {
-    super(message ?? "Unauthorized");
+  constructor(message2) {
+    super(message2 ?? "Unauthorized");
   }
 };
 function isClientAuthMethod(method) {
@@ -15124,8 +15124,8 @@ function createFetchWithInit(baseFetch = fetch, baseInit) {
 
 // node_modules/.pnpm/eventsource-parser@3.0.8/node_modules/eventsource-parser/dist/index.js
 var ParseError = class extends Error {
-  constructor(message, options) {
-    super(message), this.name = "ParseError", this.type = options.type, this.field = options.field, this.value = options.value, this.line = options.line;
+  constructor(message2, options) {
+    super(message2), this.name = "ParseError", this.type = options.type, this.field = options.field, this.value = options.value, this.line = options.line;
   }
 };
 var LF = 10;
@@ -15319,8 +15319,8 @@ var DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS = {
   maxRetries: 2
 };
 var StreamableHTTPError = class extends Error {
-  constructor(code, message) {
-    super(`Streamable HTTP error: ${message}`);
+  constructor(code, message2) {
+    super(`Streamable HTTP error: ${message2}`);
     this.code = code;
   }
 };
@@ -15472,14 +15472,14 @@ var StreamableHTTPClientTransport = class {
           }
           if (!event.event || event.event === "message") {
             try {
-              const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-              if (isJSONRPCResultResponse(message)) {
+              const message2 = JSONRPCMessageSchema.parse(JSON.parse(event.data));
+              if (isJSONRPCResultResponse(message2)) {
                 receivedResponse = true;
                 if (replayMessageId !== void 0) {
-                  message.id = replayMessageId;
+                  message2.id = replayMessageId;
                 }
               }
-              this.onmessage?.(message);
+              this.onmessage?.(message2);
             } catch (error2) {
               this.onerror?.(error2);
             }
@@ -15545,11 +15545,11 @@ var StreamableHTTPClientTransport = class {
     this._abortController?.abort();
     this.onclose?.();
   }
-  async send(message, options) {
+  async send(message2, options) {
     try {
       const { resumptionToken, onresumptiontoken } = options || {};
       if (resumptionToken) {
-        this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : void 0 }).catch((err) => this.onerror?.(err));
+        this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message2) ? message2.id : void 0 }).catch((err) => this.onerror?.(err));
         return;
       }
       const headers = await this._commonHeaders();
@@ -15559,7 +15559,7 @@ var StreamableHTTPClientTransport = class {
         ...this._requestInit,
         method: "POST",
         headers,
-        body: JSON.stringify(message),
+        body: JSON.stringify(message2),
         signal: this._abortController?.signal
       };
       const response = await (this._fetch ?? fetch)(this._url, init);
@@ -15586,7 +15586,7 @@ var StreamableHTTPClientTransport = class {
             throw new UnauthorizedError();
           }
           this._hasCompletedAuthFlow = true;
-          return this.send(message);
+          return this.send(message2);
         }
         if (response.status === 403 && this._authProvider) {
           const { resourceMetadataUrl, scope, error: error2 } = extractWWWAuthenticateParams(response);
@@ -15611,7 +15611,7 @@ var StreamableHTTPClientTransport = class {
             if (result !== "AUTHORIZED") {
               throw new UnauthorizedError();
             }
-            return this.send(message);
+            return this.send(message2);
           }
         }
         throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
@@ -15620,12 +15620,12 @@ var StreamableHTTPClientTransport = class {
       this._lastUpscopingHeader = void 0;
       if (response.status === 202) {
         await response.body?.cancel();
-        if (isInitializedNotification(message)) {
+        if (isInitializedNotification(message2)) {
           this._startOrAuthSse({ resumptionToken: void 0 }).catch((err) => this.onerror?.(err));
         }
         return;
       }
-      const messages = Array.isArray(message) ? message : [message];
+      const messages = Array.isArray(message2) ? message2 : [message2];
       const hasRequests = messages.filter((msg) => "method" in msg && "id" in msg && msg.id !== void 0).length > 0;
       const contentType = response.headers.get("content-type");
       if (hasRequests) {
@@ -16009,8 +16009,8 @@ async function callTool(apiBase, name, args, opts = {}) {
     await client.close().catch(() => void 0);
   }
 }
-function debug(opts, message) {
-  if (opts.debug) process.stderr.write(`[mcp] ${message}
+function debug(opts, message2) {
+  if (opts.debug) process.stderr.write(`[mcp] ${message2}
 `);
 }
 function normalizeStructuredContent(value) {
@@ -16081,6 +16081,176 @@ async function cmdPreview(apiBase, args, global) {
   note(`This preview URL is single-use and expires ${expiresAt ?? "shortly"}.`);
   emit(result.structuredContent);
   return 0;
+}
+
+// packages/cli/src/commands/curl.ts
+import { readFileSync as readFileSync3 } from "node:fs";
+
+// packages/cli/src/cli/payload.ts
+import { readFileSync as readFileSync2 } from "node:fs";
+var PAYLOAD_FILE_FIELD = "__payload_file";
+function payloadFileField() {
+  return PAYLOAD_FILE_FIELD;
+}
+async function resolvePayload(parsed, spec, deps = {}) {
+  const file = parsed[PAYLOAD_FILE_FIELD];
+  if (typeof file === "string") {
+    try {
+      const value2 = (deps.readFile ?? defaultReadFile)(file);
+      if (spec.required && value2 === "") throw payloadEmptyError(spec);
+      return { [spec.field]: value2 };
+    } catch (err) {
+      if (err instanceof CliError) throw err;
+      throw payloadReadError(spec, err);
+    }
+  }
+  const stdinIsTTY = (deps.stdinIsTTY ?? defaultStdinIsTTY)();
+  if (stdinIsTTY) {
+    if (!spec.required) return {};
+    const name = spec.displayName ?? spec.field;
+    const err = new CliError(
+      `Pipe ${name} to stdin or use --${spec.fileFlag} <path>.`,
+      "validation.body_invalid",
+      2
+    );
+    err.details = { field: spec.field };
+    throw err;
+  }
+  const value = stripOneTrailingNewline(await (deps.readStdin ?? defaultReadStdin)());
+  if (spec.required && value === "") throw payloadEmptyError(spec);
+  if (!spec.required && value === "") return {};
+  return { [spec.field]: value };
+}
+function payloadEmptyError(spec) {
+  const name = spec.displayName ?? spec.field;
+  const err = new CliError(`${name} must not be empty.`, "validation.body_invalid", 2);
+  err.details = { field: spec.field };
+  return err;
+}
+function payloadReadError(spec, cause) {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  const err = new CliError(
+    `Could not read --${spec.fileFlag}: ${detail}`,
+    "validation.body_invalid",
+    2
+  );
+  err.details = { field: spec.fileFlag };
+  return err;
+}
+function defaultReadFile(path) {
+  return readFileSync2(path, "utf8");
+}
+function defaultStdinIsTTY() {
+  return process.stdin.isTTY === true;
+}
+async function defaultReadStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+function stripOneTrailingNewline(value) {
+  if (value.endsWith("\r\n")) return value.slice(0, -2);
+  if (value.endsWith("\n")) return value.slice(0, -1);
+  return value;
+}
+
+// packages/cli/src/commands/curl.ts
+var HEADERS_FILE_FIELD = "__headers_file";
+var CURL_FLAGS = {
+  app: {
+    field: "app_id",
+    type: "string",
+    required: true,
+    format: "uuid",
+    describe: "App id (from `apps list`)."
+  },
+  path: {
+    field: "path",
+    type: "string",
+    required: true,
+    describe: "Path and optional query string under the app."
+  },
+  method: {
+    field: "method",
+    type: "enum",
+    enumValues: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+    defaultValue: "GET",
+    describe: "HTTP method (defaults to GET)."
+  },
+  "headers-file": {
+    field: HEADERS_FILE_FIELD,
+    type: "string",
+    describe: "Read a JSON object of request headers from a file or fd."
+  },
+  "body-file": {
+    field: payloadFileField(),
+    type: "string",
+    describe: "Read the optional request body from a file or fd; otherwise stdin."
+  },
+  "follow-redirects": {
+    field: "follow_redirects",
+    type: "boolean",
+    describe: "Follow same-app redirects (maximum five)."
+  },
+  "as-user": {
+    field: "as_user",
+    type: "string",
+    describe: "Same-org user id or email (platform admin/org_admin only)."
+  }
+};
+async function cmdCurl(apiBase, args, global, deps = {}) {
+  const parsed = parseFlags(args, CURL_FLAGS);
+  const input = { ...parsed };
+  const headersFile = input[HEADERS_FILE_FIELD];
+  delete input[HEADERS_FILE_FIELD];
+  if (typeof headersFile === "string") {
+    input["headers"] = readHeaders(headersFile, deps.readHeadersFile);
+  }
+  Object.assign(
+    input,
+    await resolvePayload(
+      parsed,
+      {
+        field: "body",
+        fileFlag: "body-file",
+        required: false,
+        describe: "HTTP request body."
+      },
+      deps
+    )
+  );
+  delete input[payloadFileField()];
+  const result = await callTool(apiBase, "curlApp", input, { debug: global.debug });
+  emit(result.structuredContent);
+  return result.isError ? exitCodeForToolError(result.structuredContent) : 0;
+}
+function readHeaders(path, read) {
+  let raw;
+  try {
+    raw = (read ?? ((file) => readFileSync3(file, "utf8")))(path);
+  } catch (cause) {
+    throw invalidHeaders(`Could not read --headers-file: ${message(cause)}`);
+  }
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch (cause) {
+    throw invalidHeaders(`--headers-file must contain valid JSON: ${message(cause)}`);
+  }
+  if (value === null || Array.isArray(value) || typeof value !== "object" || Object.keys(value).length > 100 || Object.values(value).some((header) => typeof header !== "string")) {
+    throw invalidHeaders("--headers-file must contain an object of at most 100 string values.");
+  }
+  return value;
+}
+function invalidHeaders(message2) {
+  const error2 = new CliError(message2, "validation.body_invalid", 2);
+  error2.details = { field: "headers-file" };
+  return error2;
+}
+function message(cause) {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 // packages/cli/src/commands/repo.ts
@@ -16265,7 +16435,7 @@ function isNetworkError(err) {
 
 // packages/cli/src/run-contract.ts
 import { spawn } from "node:child_process";
-import { readFileSync as readFileSync2 } from "node:fs";
+import { readFileSync as readFileSync4 } from "node:fs";
 import { dirname as dirname2, join as join2, resolve } from "node:path";
 var MAX_TIMER_MS = 2147483647;
 var INTEGRATION_LABEL = {
@@ -16283,7 +16453,7 @@ function findAppId(cwd) {
   let dir = resolve(cwd);
   for (let i = 0; i < 8; i += 1) {
     try {
-      const text = readFileSync2(join2(dir, "greenlight.yml"), "utf8");
+      const text = readFileSync4(join2(dir, "greenlight.yml"), "utf8");
       return text.match(/^app_id:\s*["']?([^"'\s#]+)/m)?.[1] ?? null;
     } catch {
     }
@@ -16296,7 +16466,7 @@ function findAppId(cwd) {
 function parseEnvFile(path) {
   let text;
   try {
-    text = readFileSync2(path, "utf8");
+    text = readFileSync4(path, "utf8");
   } catch {
     throw new CliError(`Could not read --env-file '${path}'.`);
   }
@@ -16480,76 +16650,6 @@ greenlight run \u2014 ${contract.app_slug ?? "your granted integrations (user mo
   note(`Credentials valid until ${contract.expires_at}.
 `);
   return spawnChild(devCommand, contract);
-}
-
-// packages/cli/src/cli/payload.ts
-import { readFileSync as readFileSync3 } from "node:fs";
-var PAYLOAD_FILE_FIELD = "__payload_file";
-function payloadFileField() {
-  return PAYLOAD_FILE_FIELD;
-}
-async function resolvePayload(parsed, spec, deps = {}) {
-  const file = parsed[PAYLOAD_FILE_FIELD];
-  if (typeof file === "string") {
-    try {
-      const value2 = (deps.readFile ?? defaultReadFile)(file);
-      if (spec.required && value2 === "") throw payloadEmptyError(spec);
-      return { [spec.field]: value2 };
-    } catch (err) {
-      if (err instanceof CliError) throw err;
-      throw payloadReadError(spec, err);
-    }
-  }
-  const stdinIsTTY = (deps.stdinIsTTY ?? defaultStdinIsTTY)();
-  if (stdinIsTTY) {
-    if (!spec.required) return {};
-    const name = spec.displayName ?? spec.field;
-    const err = new CliError(
-      `Pipe ${name} to stdin or use --${spec.fileFlag} <path>.`,
-      "validation.body_invalid",
-      2
-    );
-    err.details = { field: spec.field };
-    throw err;
-  }
-  const value = stripOneTrailingNewline(await (deps.readStdin ?? defaultReadStdin)());
-  if (spec.required && value === "") throw payloadEmptyError(spec);
-  if (!spec.required && value === "") return {};
-  return { [spec.field]: value };
-}
-function payloadEmptyError(spec) {
-  const name = spec.displayName ?? spec.field;
-  const err = new CliError(`${name} must not be empty.`, "validation.body_invalid", 2);
-  err.details = { field: spec.field };
-  return err;
-}
-function payloadReadError(spec, cause) {
-  const detail = cause instanceof Error ? cause.message : String(cause);
-  const err = new CliError(
-    `Could not read --${spec.fileFlag}: ${detail}`,
-    "validation.body_invalid",
-    2
-  );
-  err.details = { field: spec.fileFlag };
-  return err;
-}
-function defaultReadFile(path) {
-  return readFileSync3(path, "utf8");
-}
-function defaultStdinIsTTY() {
-  return process.stdin.isTTY === true;
-}
-async function defaultReadStdin() {
-  const chunks = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-function stripOneTrailingNewline(value) {
-  if (value.endsWith("\r\n")) return value.slice(0, -2);
-  if (value.endsWith("\n")) return value.slice(0, -1);
-  return value;
 }
 
 // packages/cli/src/cli/registry.ts
@@ -16957,8 +17057,8 @@ async function runMcpCommand(apiBase, spec, args, global, deps = {}) {
   emit(result.structuredContent);
   return result.isError ? exitCodeForToolError(result.structuredContent) : 0;
 }
-function invalid2(message, field) {
-  const err = new CliError(message, "validation.body_invalid", 2);
+function invalid2(message2, field) {
+  const err = new CliError(message2, "validation.body_invalid", 2);
   err.details = { field };
   return err;
 }
@@ -17013,6 +17113,10 @@ var LOCAL_FLAG_HELP = {
     flags: RUN_FLAGS
   },
   preview: { summary: "Emit a single-use preview URL for the app.", flags: PREVIEW_FLAGS },
+  curl: {
+    summary: "Make an authenticated request to a deployed app.",
+    flags: CURL_FLAGS
+  },
   "repo clone": {
     summary: "Clone the app repo with a minted token (never printed).",
     flags: REPO_CLONE_FLAGS
@@ -17039,6 +17143,7 @@ var LOCAL_COMMANDS = [
     "Re-point an existing checkout's origin at a fresh token."
   ],
   ["preview --app <id> [--path <p>]", "Emit a single-use preview URL."],
+  ["curl --app <id> --path <p>", "Make an authenticated request to a deployed app."],
   ["doctor", "Report config, auth state, and server reachability."],
   ["help [command]", "Show this help, or a command's flags."]
 ];
@@ -17443,6 +17548,7 @@ async function main(argv) {
   if (command === "repo clone") return cmdRepoClone(resolveApiBase(), rest, global);
   if (command === "repo refresh") return cmdRepoRefresh(resolveApiBase(), rest, global);
   if (command === "preview") return cmdPreview(resolveApiBase(), rest, global);
+  if (command === "curl") return cmdCurl(resolveApiBase(), rest, global);
   const spec = MCP_COMMANDS[command];
   if (spec) return runMcpCommand(resolveApiBase(), spec, rest, global);
   note(helpText());
