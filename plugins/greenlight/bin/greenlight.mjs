@@ -15879,15 +15879,36 @@ function clearOAuthRecord(apiBase) {
 var OAUTH_SCOPE = "greenlight";
 var CLIENT_NAME = "Greenlight CLI";
 var GreenlightOAuthProvider = class {
-  constructor(apiBase, redirect, stateValue) {
+  constructor(apiBase, redirect, stateValue, opts = {}) {
     this.apiBase = apiBase;
     this.redirect = redirect;
     this.stateValue = stateValue;
+    this.staged = opts.staged ? { ...loadOAuthRecord(apiBase) } : void 0;
   }
   /** Receives the authorization URL so the login flow can open a browser. */
   onAuthorizationUrl;
+  // Staged mode (interactive login): the flow reads/writes an in-memory copy of
+  // the record and persists nothing until commitStaged(), so an interrupted or
+  // abandoned login can never destroy a working stored credential.
+  staged;
+  stagedTokensWritten = false;
+  read() {
+    return this.staged ?? loadOAuthRecord(this.apiBase);
+  }
   patch(patch) {
+    if (this.staged) {
+      Object.assign(this.staged, patch);
+      return;
+    }
     saveOAuthRecord(this.apiBase, { ...loadOAuthRecord(this.apiBase), ...patch });
+  }
+  /**
+   * Persist the staged record; no-op in write-through mode. Gated on the flow
+   * having minted tokens: an "already authorized" outcome writes nothing, so a
+   * preparatory staged edit (the dropped pairing client) never reaches the store.
+   */
+  commitStaged() {
+    if (this.staged && this.stagedTokensWritten) saveOAuthRecord(this.apiBase, this.staged);
   }
   get redirectUrl() {
     return this.redirect;
@@ -15906,22 +15927,23 @@ var GreenlightOAuthProvider = class {
     return this.stateValue;
   }
   clientInformation() {
-    return loadOAuthRecord(this.apiBase).client;
+    return this.read().client;
   }
   saveClientInformation(info) {
     this.patch({ client: info });
   }
   tokens() {
-    return loadOAuthRecord(this.apiBase).tokens;
+    return this.read().tokens;
   }
   saveTokens(tokens) {
+    this.stagedTokensWritten = true;
     this.patch({ tokens, tokensSavedAt: Date.now() });
   }
   saveCodeVerifier(codeVerifier) {
     this.patch({ codeVerifier });
   }
   codeVerifier() {
-    const verifier = loadOAuthRecord(this.apiBase).codeVerifier;
+    const verifier = this.read().codeVerifier;
     if (!verifier) throw new Error("No PKCE code verifier stored for this login.");
     return verifier;
   }
@@ -15937,15 +15959,17 @@ var GreenlightOAuthProvider = class {
     this.patch({ discovery: state });
   }
   discoveryState() {
-    return loadOAuthRecord(this.apiBase).discovery;
+    return this.read().discovery;
   }
   invalidateCredentials(scope) {
-    if (scope === "all") {
+    if (!this.staged && scope === "all") {
       clearOAuthRecord(this.apiBase);
       return;
     }
-    const record2 = loadOAuthRecord(this.apiBase);
-    if (scope === "tokens") {
+    const record2 = this.staged ?? loadOAuthRecord(this.apiBase);
+    if (scope === "all") {
+      for (const key of Object.keys(record2)) delete record2[key];
+    } else if (scope === "tokens") {
       delete record2.tokens;
       delete record2.tokensSavedAt;
     } else if (scope === "client") {
@@ -15955,7 +15979,7 @@ var GreenlightOAuthProvider = class {
     } else {
       delete record2.discovery;
     }
-    saveOAuthRecord(this.apiBase, record2);
+    if (!this.staged) saveOAuthRecord(this.apiBase, record2);
   }
 };
 
@@ -16438,6 +16462,7 @@ import { spawn } from "node:child_process";
 import { readFileSync as readFileSync4 } from "node:fs";
 import { dirname as dirname2, join as join2, resolve } from "node:path";
 var MAX_TIMER_MS = 2147483647;
+var KILL_ESCALATION_MS = 5e3;
 var INTEGRATION_LABEL = {
   live_raw: "live (raw, injected)",
   live_proxy: "live (proxy token)",
@@ -16531,13 +16556,39 @@ function asResources(value) {
 function spawnChild(devCommand, contract) {
   const [cmd, ...args] = devCommand;
   if (cmd === void 0) throw new CliError("Usage: greenlight run -- <command> [args\u2026]");
+  const posix = process.platform !== "win32";
   const child = spawn(cmd, args, {
     stdio: "inherit",
     env: { ...process.env, ...contract.env },
-    shell: process.platform === "win32"
+    shell: !posix,
+    // POSIX: the child leads its own process group, so termination reaches its
+    // whole tree (`npm run dev` → node), not just the direct child.
+    detached: posix
   });
+  child.on("spawn", () => {
+    process.stderr.write(
+      `[greenlight] ready \u2014 \`${devCommand.join(" ")}\` is running (pid ${child.pid}).
+`
+    );
+  });
+  const killTree = (sig) => {
+    if (child.pid === void 0) return;
+    if (posix) {
+      try {
+        process.kill(-child.pid, sig);
+        return;
+      } catch {
+      }
+    }
+    child.kill(sig);
+  };
   const restartTimer = scheduleExpiryNotice(contract.expires_at, () => child.killed === false);
-  const forward = (sig) => () => child.kill(sig);
+  let escalation;
+  const forward = (sig) => () => {
+    killTree(sig);
+    escalation ??= setTimeout(() => killTree("SIGKILL"), KILL_ESCALATION_MS);
+    if (typeof escalation.unref === "function") escalation.unref();
+  };
   const onSigint = forward("SIGINT");
   const onSigterm = forward("SIGTERM");
   process.on("SIGINT", onSigint);
@@ -16553,6 +16604,7 @@ function spawnChild(devCommand, contract) {
     });
     function cleanup() {
       if (restartTimer) clearTimeout(restartTimer);
+      if (escalation) clearTimeout(escalation);
       process.off("SIGINT", onSigint);
       process.off("SIGTERM", onSigterm);
     }
@@ -16644,10 +16696,10 @@ async function cmdRun(apiBase, opts, devCommand) {
   contract.env = { ...userEnv, ...contract.env };
   note(
     `
-greenlight run \u2014 ${contract.app_slug ?? "your granted integrations (user mode)"} (local)`
+[greenlight] run \u2014 ${contract.app_slug ?? "your granted integrations (user mode)"} (local)`
   );
-  for (const line of formatSummary(contract)) note(line);
-  note(`Credentials valid until ${contract.expires_at}.
+  for (const line of formatSummary(contract)) note(`[greenlight]${line}`);
+  note(`[greenlight] Credentials valid until ${contract.expires_at}.
 `);
   return spawnChild(devCommand, contract);
 }
@@ -17107,10 +17159,25 @@ function flagsWithPayloadFile(spec) {
 
 // packages/cli/src/cli/help.ts
 var PAD = 38;
+var AUTH_TIMEOUT_FLAG = {
+  timeout: {
+    field: "timeout",
+    type: "number",
+    describe: "Give up after this many seconds instead of the default wait."
+  }
+};
 var LOCAL_FLAG_HELP = {
   run: {
-    summary: "Run a dev command with governed env injected \u2014 app mode with --app, else user mode.",
+    summary: "Run a dev command with governed env injected \u2014 app mode with --app, else user mode. For a long-lived server, background it (`nohup greenlight run \u2026 > run.log 2>&1 &`) and poll the log for the `[greenlight] ready` line; stop it by signalling the greenlight process (the signal reaches the whole child tree).",
     flags: RUN_FLAGS
+  },
+  login: {
+    summary: "Sign in via the standalone OAuth browser flow. Blocks until the browser round-trip completes \u2014 background it or pass --timeout.",
+    flags: AUTH_TIMEOUT_FLAG
+  },
+  pair: {
+    summary: "Sign in by approving a code over your agent's MCP session. Blocks until the code is approved out of band \u2014 background it or pass --timeout.",
+    flags: AUTH_TIMEOUT_FLAG
   },
   preview: { summary: "Emit a single-use preview URL for the app.", flags: PREVIEW_FLAGS },
   curl: {
@@ -17127,8 +17194,8 @@ var LOCAL_FLAG_HELP = {
   }
 };
 var AUTH_COMMANDS = [
-  ["login", "Sign in via the standalone OAuth browser flow."],
-  ["pair", "Sign in by approving a code over your agent's MCP session."],
+  ["login [--timeout <s>]", "Sign in via the standalone OAuth browser flow (blocks until done)."],
+  ["pair [--timeout <s>]", "Sign in by approving a code over MCP (blocks until approved)."],
   ["whoami", "Show the signed-in identity."],
   ["logout", "Remove the stored CLI credentials."]
 ];
@@ -17224,14 +17291,15 @@ function cmdLogout(apiBase) {
 // packages/cli/src/commands/pair.ts
 import { createHash as createHash2, randomBytes as randomBytes3 } from "node:crypto";
 var POLL_INTERVAL_MS = 2e3;
-var POLL_TIMEOUT_MS = 10 * 60 * 1e3;
+var DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1e3;
 var sha256 = (s) => createHash2("sha256").update(s, "utf8").digest("hex");
 function genPairingCode() {
   const alphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
   const pick2 = () => Array.from(randomBytes3(4), (b) => alphabet[b % alphabet.length]).join("");
   return `GL-${pick2()}-${pick2()}`;
 }
-async function cmdPair(apiBase) {
+async function cmdPair(apiBase, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
   const code = genPairingCode();
   const created = await jsonRequest("POST", `${apiBase}/api/cli/sessions`, {
     body: { pairing_code_hash: sha256(code) }
@@ -17250,9 +17318,9 @@ Pairing code: ${code}
 Approve it from your agent (it is already signed in to Greenlight):
   approveCliSession({ code: "${code}" })
 
-Waiting for approval\u2026`
+[greenlight] Waiting for approval (up to ${Math.round(timeoutMs / 1e3)}s) \u2014 this command blocks until the code is approved out of band. Run it in the background (or pass --timeout <seconds>); confirm with \`greenlight whoami\`.`
   );
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   const timedOut = () => Date.now() > deadline;
   let deliveryMissed = false;
   for (; ; ) {
@@ -17289,14 +17357,20 @@ Waiting for approval\u2026`
     }
     if (status === "active") deliveryMissed = true;
     if (status === "expired" || status === "revoked") {
-      throw new CliError("Pairing was not approved in time. Run `greenlight pair` again.");
+      throw new CliError(
+        "Pairing was not approved in time. Run `greenlight pair` again.",
+        "auth.pairing_expired",
+        3
+      );
     }
     if (timedOut()) throw timeoutError(deliveryMissed);
   }
 }
 function timeoutError(deliveryMissed) {
   return new CliError(
-    deliveryMissed ? "Pairing was approved but the one-time credential was not received. Run `greenlight pair` again." : "Timed out waiting for approval. Run `greenlight pair` again."
+    deliveryMissed ? "Pairing was approved but the one-time credential was not received. Run `greenlight pair` again." : "Timed out waiting for approval. Run `greenlight pair` again.",
+    "auth.pairing_timed_out",
+    3
   );
 }
 
@@ -17336,16 +17410,21 @@ import { spawn as spawn2 } from "node:child_process";
 import { randomBytes as randomBytes4 } from "node:crypto";
 import { createServer } from "node:http";
 import { URL as URL3 } from "node:url";
-var LOGIN_TIMEOUT_MS = 5 * 60 * 1e3;
+var DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1e3;
+var HEARTBEAT_MS = 30 * 1e3;
 var CALLBACK_PATH = "/callback";
-async function cmdLogin(apiBase, deps = {}) {
-  const stored = loadOAuthRecord(apiBase);
-  if (stored.client && !("redirect_uris" in stored.client)) {
-    saveOAuthRecord(apiBase, { ...stored, client: void 0 });
-  }
+async function cmdLogin(apiBase, deps = {}, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
   const state = randomBytes4(16).toString("base64url");
-  const loopback = await startLoopback(state, apiBase);
-  const provider = new GreenlightOAuthProvider(apiBase, loopback.redirectUri, state);
+  const loopback = await startLoopback(state, apiBase, timeoutMs);
+  const provider = new GreenlightOAuthProvider(apiBase, loopback.redirectUri, state, {
+    staged: true
+  });
+  const client = provider.clientInformation();
+  if (client && !("redirect_uris" in client)) {
+    provider.invalidateCredentials("client");
+    provider.invalidateCredentials("tokens");
+  }
   const open = deps.openBrowser ?? defaultOpenBrowser;
   provider.onAuthorizationUrl = async (url2) => {
     process.stderr.write(
@@ -17353,13 +17432,20 @@ async function cmdLogin(apiBase, deps = {}) {
 To sign in to Greenlight, open this URL in your browser:
 ${url2.toString()}
 
+[greenlight] Waiting for the browser sign-in (up to ${Math.round(timeoutMs / 1e3)}s) \u2014 this command blocks until the round-trip completes. Run it in the background if you need the terminal; confirm with \`greenlight whoami\`.
 `
     );
     await open(url2);
   };
+  const heartbeat = setInterval(
+    () => note("[greenlight] Still waiting for the browser sign-in\u2026"),
+    HEARTBEAT_MS
+  );
+  if (typeof heartbeat.unref === "function") heartbeat.unref();
   try {
     const started = await auth(provider, { serverUrl: apiBase, scope: OAUTH_SCOPE });
     if (started === "AUTHORIZED") {
+      provider.commitStaged();
       note("Already signed in to Greenlight.");
       return;
     }
@@ -17371,12 +17457,14 @@ ${url2.toString()}
       scope: OAUTH_SCOPE
     });
     if (finished !== "AUTHORIZED") throw new CliError("OAuth authorization did not complete.");
+    provider.commitStaged();
     note(`Signed in to Greenlight. The CLI credential is stored in ${credentialStoreLabel()}.`);
   } finally {
+    clearInterval(heartbeat);
     loopback.close();
   }
 }
-async function startLoopback(expectedState, apiBase) {
+async function startLoopback(expectedState, apiBase, timeoutMs) {
   let resolveCode;
   let rejectCode;
   const codePromise = new Promise((res, rej) => {
@@ -17423,9 +17511,13 @@ async function startLoopback(expectedState, apiBase) {
   const redirectUri = `http://127.0.0.1:${address.port}${CALLBACK_PATH}`;
   const timer = setTimeout(
     () => rejectCode(
-      new CliError("Timed out waiting for the browser sign-in. Run `greenlight login` again.")
+      new CliError(
+        "Timed out waiting for the browser sign-in. Run `greenlight login` again.",
+        "auth.login_timed_out",
+        3
+      )
     ),
-    LOGIN_TIMEOUT_MS
+    timeoutMs
   );
   if (typeof timer.unref === "function") timer.unref();
   return {
@@ -17455,6 +17547,27 @@ function defaultOpenBrowser(url2) {
 
 // packages/cli/src/index.ts
 var SINGLE_WORD_AUTH = /* @__PURE__ */ new Set(["login", "pair", "whoami", "logout"]);
+function parseTimeoutMs(rest, command) {
+  const idx = rest.indexOf("--timeout");
+  const leftover = rest.filter((_, i) => i !== idx && (idx === -1 || i !== idx + 1));
+  if (leftover.length > 0) {
+    throw new CliError(
+      `Unknown ${command} argument: ${leftover[0]}. Only --timeout <seconds> is accepted.`,
+      "validation.unknown_flag",
+      2
+    );
+  }
+  if (idx === -1) return void 0;
+  const seconds = Number(rest[idx + 1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new CliError(
+      "--timeout expects a positive number of seconds.",
+      "validation.body_invalid",
+      2
+    );
+  }
+  return seconds * 1e3;
+}
 function parseRunArgs(after) {
   const opts = { env: {} };
   const value = (i2, flag) => {
@@ -17538,8 +17651,10 @@ async function main(argv) {
   }
   if (SINGLE_WORD_AUTH.has(command)) {
     const apiBase = resolveApiBase();
-    if (command === "login") await cmdLogin(apiBase);
-    else if (command === "pair") await cmdPair(apiBase);
+    if (command === "login")
+      await cmdLogin(apiBase, {}, { timeoutMs: parseTimeoutMs(rest, "login") });
+    else if (command === "pair")
+      await cmdPair(apiBase, { timeoutMs: parseTimeoutMs(rest, "pair") });
     else if (command === "whoami") await cmdWhoami(apiBase);
     else cmdLogout(apiBase);
     return 0;

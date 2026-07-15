@@ -54,15 +54,28 @@ prompt, or run a command.
 
 **Voice rules — apply to every user-facing message, not just the final one:**
 
-- **Talk about the app, never the plumbing.** PRs, merges, branches, pipelines, repos, MCP vs CLI,
-  proxied vs injected credentials, grants, tokens, Kubernetes — none of it appears in what you say
-  to the user unless they ask. Say "publishing your change now — it takes a couple of minutes," not
-  "opening a PR and waiting for the pipeline." Say "your app can read the company CRM," not "the
-  proxied grant is live."
-- **Never ask technical permission.** "Want me to merge the PR?", "Should I go diagnose the
-  failure?", "Should I switch to the CLI?" are your calls — make them and keep moving. Fixing a
-  failed check, retrying auth, choosing a surface, merging after a green pipeline once the user has
-  asked to publish: all yours, done silently.
+- **Talk about the app, never the plumbing.** PRs, merges, branches, pipelines, repos, "local
+  environment", MCP vs CLI, proxied vs injected credentials, grants, tokens, Kubernetes — none of
+  it appears in what you say to the user unless they ask. When something about the plumbing must
+  reach the user, translate it into product words:
+
+  | Instead of…                               | Say…                                                             |
+  | ----------------------------------------- | ---------------------------------------------------------------- |
+  | "opening a PR / waiting for the pipeline" | "publishing your change now — it takes a couple of minutes"      |
+  | "should I merge the PR?"                  | "want me to publish these changes to the app?"                   |
+  | "the pipeline passed / deploy succeeded"  | "it's live — here's the link"                                    |
+  | "a pipeline check failed"                 | "hit a snag publishing; fixing it now"                           |
+  | "running in your local environment"       | "here's a preview you can click through"                         |
+  | "the proxied grant is live"               | "your app can read the company CRM"                              |
+  | "the grant is pending IT approval"        | "IT needs to sign off on access to <system>; I'll keep building" |
+
+- **Never ask technical permission — and bootstrap whatever the work needs.** "Want me to merge
+  the PR?", "Should I go diagnose the failure?", "Should I switch to the CLI?", "Can I install
+  this package?" are your calls — make them and keep moving. If the technical work needs something
+  you don't have — a dependency, a runtime, a headless browser, a local fixture database — install
+  or set it up yourself, silently; never ask the user to install anything or wait on them for
+  tooling. Fixing a failed check, retrying auth, choosing a surface, merging after a green
+  pipeline once the user has asked to publish: all yours, done silently.
 - **The only questions you ask are product questions** — what it should look like, what it should
   do, who uses it, which company data it should show. Offer concrete options rather than open-ended
   prompts (see _Starting from an idea_).
@@ -108,9 +121,8 @@ jumps straight into an existing app still needs the org's conventions. Then: rea
 (`knowledgeList({ scope: 'integration', integration })` + `knowledgeGet`) before writing
 data-access code; `knowledgeSearch({ query })` when you're stuck; `knowledgePropose({ …, rationale })`
 when you learn something future sessions need — it files a proposal for human review, never a
-direct edit. Each has a CLI twin (`greenlight knowledge list/get/search/propose`). `getPolicies`
-(the enforced pipeline rules) is not available yet; infer policy from pipeline output and the
-manifest.
+direct edit. Each has a CLI twin (`greenlight knowledge list/get/search/propose`). There is no tool
+that returns the enforced pipeline rules; infer policy from pipeline output and the manifest.
 
 **Knowledge is a best-effort head start, not a precondition.** Check it — it often saves real work —
 but do not assume an entry exists for a given org, app, or integration, or that any entry it does
@@ -141,12 +153,18 @@ Greenlight's builder surface is reachable two equivalent ways — use whichever 
 OAuth clients refresh unreliably; the CLI refreshes its own credential, so the same operation
 succeeds through it.
 
-**Sign the CLI in** (either path yields the same auto-refreshing credential):
+**Sign the CLI in** — two equal paths to the same auto-refreshing credential; pick by whether the
+agent has a working MCP session. **Both commands block by design** — `pair` until the code is
+approved over MCP, `login` until the browser round-trip completes — so **run them in the
+background from the very first invocation** (never as a plain foreground command your harness will
+time out), or pass `--timeout <seconds>`; confirm completion with `greenlight whoami`:
 
-- **`greenlight pair`** — reuses a healthy MCP session: it prints a code, you approve it with
-  `approveCliSession({ code })` over MCP. No second browser sign-in.
-- **`greenlight login`** — standalone browser OAuth (loopback flow) when there is no usable MCP
-  session; open the URL it prints (or hand it to the human).
+- **`greenlight pair`** — when MCP works: it prints a code, you approve it with
+  `approveCliSession({ code })` over MCP from a separate turn. No second browser sign-in.
+- **`greenlight login`** — when MCP is not connected (a common, fully supported state — the CLI
+  exists to work without MCP): standalone browser OAuth (loopback flow); open the URL it prints,
+  or hand it to the human. Skip it when `greenlight whoami` already succeeds — it always starts a
+  fresh browser sign-in.
 
 **CLI ↔ MCP equivalence** — builder goals, callable from either surface:
 
@@ -210,7 +228,10 @@ The standard new-app loop:
 2. **Clone and write code — showing the user as you go.** Fill in the required `docs` block (the
    pipeline blocks deploy without it) and a `README.md`. Write your `Dockerfile` and `src/`. As
    soon as there is anything to render, run the app locally and put it in front of the user — see
-   _Show your work_. Iterate here, where a change costs seconds, not in the deploy loop.
+   _Show your work_. Until the first merge the app's own grants and resources don't exist, so run
+   it in **user mode** on your own requested access (see _Local development_) — the whole app can
+   be built and demoed this way before anything deploys. Iterate here, where a change costs
+   seconds, not in the deploy loop.
 3. **Declare infrastructure** by uncommenting and editing `greenlight.yml`: add `workloads.web`,
    any `resources`, any integration `grants`, and the _names_ of env vars under `env`.
 4. **Set env-var values** for each name you declared, with `envSet` or `greenlight env set` — pass
@@ -253,19 +274,83 @@ Ship progress:
 - [ ] Live app shown to the user (fresh preview URL)
 ```
 
-<!-- cancelled-tools-note:start -->
+## Local development with `greenlight run`
 
-There are **no imperative infrastructure tools for an app** — no `resource.add`, no
-`requestPermissions`, no `workload.add` / `workload.update` / `workload.remove`. Anyone who
-remembers those from an older Greenlight is remembering a model that no longer exists. Every
-resource, workload, and **app** grant change is a `greenlight.yml` edit applied by a merge. (This
-paragraph is the _only_ place those names appear, precisely to say they are gone. The one
-imperative grant request that _does_ exist — `requestCredentialAccess` — requests the **user's own
-personal** access, never the app's; see _Personal data access_.)
+**Local-first is the default posture: build and iterate under `greenlight run`, and deploy only
+when the user has seen what they asked for.** A local change costs seconds, a deploy costs minutes
+— the deploy loop is for shipping, not for finding out whether something works. `greenlight run` is
+the standard — and only — local-run entry. It is also the one CLI verb with no MCP equivalent: it
+delivers real secret values into a local process, which never crosses MCP. The mode is explicit:
 
-<!-- cancelled-tools-note:end -->
+- **User mode — `greenlight run -- <your dev command>`** (no `--app`) resolves the **user's own
+  personal grants** (see _Personal data access_). **Every new app starts here:** until the first
+  merge the app has no grants or resources of its own, so request what the app needs under your own
+  identity (`requestCredentialAccess`) and build the whole thing locally against real proxied data.
+  The same mode covers no-app work — scripts, notebooks, data exploration. It never injects
+  `DATABASE_URL` or `STORAGE_SAS_URL` (app resources are app-scoped).
+- **App mode — `greenlight run --app <app_id> -- <your dev command>`** (e.g.
+  `greenlight run --app 3f25… -- npm run dev`) resolves the **app's** env contract server-side —
+  the same grants the deployed pod runs on, so local access mirrors production exactly. The
+  contract is read at the app's **last merge**: switch to `--app` once the app has shipped; before
+  the first merge there is nothing to resolve and app mode injects nothing.
+- Mode is never guessed from the directory: omitting `--app` inside an app checkout prints a
+  warning and proceeds in user mode — expected while you build pre-merge; pass `--app` explicitly
+  once the app has shipped.
+- Extra local vars flow through unchanged: the ambient shell env, repeatable `--env KEY=VAL`, and
+  `--env-file <path>` — with Greenlight-managed names always injected last (they cannot be
+  clobbered).
 
-### A complete greenlight.yml
+The managed env-var names are identical in both modes, so code written in user mode runs unchanged
+when the app later deploys on its own grants; the app's own Postgres is a local fixture database
+either way.
+
+**Reach for the personal-grant bridge before you reach for fixtures.** When a grant the app
+declares hasn't merged yet, check `listGrantableIntegrations` first: it shows each credential's
+`approval_mode` and your own `caller_grant_status`. If the credential auto-approves, **just
+request it** — `requestCredentialAccess` grants instantly, user mode serves real data with zero
+code changes, and auto-approval _is_ the org's permission; don't stop to ask. Narrate the result
+in product terms ("the preview is showing your live CRM data"), never the mechanics. For
+`approval_mode: manual` credentials, file the request, tell the user IT needs to sign off on
+access to that system, and build on fixtures while it's reviewed. The only question worth asking
+here is a genuine ambiguity about _which_ data the user means — "should this read the staging
+database or the production one?" — a product clarification, never a permission request.
+
+Either mode injects values **into your dev process only**: no `.env.local`, no file on disk, no
+local server, and no secret ever crosses MCP. App code is byte-identical to the deployed pod — same
+env-var names, different values — so always read env vars and never hardcode endpoints. There is
+**no `envPull` tool**; it was retired permanently — do not call it.
+
+**Running a long-lived dev server?** Background `greenlight run` deliberately from the start:
+`nohup greenlight run [--app <id>] -- <cmd> > run.log 2>&1 &` (then `disown`), and poll `run.log`
+for the **`[greenlight] ready`** line — the stable marker that the env is resolved and your
+command is running. Every platform status line carries the `[greenlight]` prefix; anything else in
+the log is your app's own output. To stop the server, signal the `greenlight` process
+(`kill <pid>`) — the signal reaches the whole child tree (no `pkill -f` heuristics needed), and a
+tree that ignores SIGTERM is force-killed a few seconds later.
+
+**Know what's live vs. fixtures before you run.** Read `getApp` (grant `delivery_mode` +
+`local_dev_enabled`), and `greenlight run` prints a per-dependency status line at startup. At MVP:
+
+- **Injected integration with `local_dev_enabled`** → the real credential, in-process. Live.
+- **Injected integration with `local_dev_enabled: false`** → IT withholds it; author a fixture.
+- **Proxied integration with `local_dev_enabled`** → live through the same broker: `greenlight run`
+  mints a short-lived `purpose: 'local'` token and points the app at the real public proxy, so calls
+  go through the unchanged grant-check + credential-swap + audit path. No upstream secret on the
+  laptop.
+- **Proxied integration with `local_dev_enabled: false`** → IT withholds it in app mode; calls get
+  a `403`, so author a fixture for the loop. (In **user mode** a granted proxied integration is
+  always live — the flag gates only raw credential delivery, and proxied calls expose no secret.)
+- **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
+- **Blob** → a freshly minted short-TTL SAS. Live (app mode only).
+
+For anything still fixture-only — a manual-approval credential, a declined personal request, or an
+unreachable control plane (corporate egress block) — write your own fixtures/mocks for that
+dependency and keep iterating, then confirm the real wiring after deploy (deployed-state reads,
+logs/metrics, and a `getAppPreviewUrl` session). If the app's runtime/deps are a heavy lift to set
+up locally, ship the code and show the deployed app instead — and tell the user that's what you
+did.
+
+## A complete greenlight.yml
 
 ```yaml
 # greenlight.yml
@@ -323,8 +408,13 @@ each is `injected` or `proxied`, and to copy its ready-made `manifest_grant_exam
 
 Grants are request signals, not merge blockers: an auto-approved grant works the moment the PR
 merges; an IT-required grant deploys in `pending` and the proxy returns `403` for it until IT
-approves out of band (no redeploy needed). Watch grant status in `getApp`; the dedicated
-`getPermissions` tool is still being wired.
+approves out of band (no redeploy needed). Watch grant status in `getApp`.
+
+**The provisioned `postgres` resource is Azure Database for PostgreSQL (v16), and `CREATE
+EXTENSION` is not allow-listed for app users** — a migration that runs
+`CREATE EXTENSION pgcrypto` (or `uuid-ossp`) passes the build and then crash-loops the pod on
+first boot. Write schemas that need no extensions: `gen_random_uuid()` is built into Postgres 16
+core (no pgcrypto required), or generate ids in app code (`crypto.randomUUID()`).
 
 ## Personal data access (no app needed)
 
@@ -343,9 +433,11 @@ the **user's own identity** instead:
   user-scoped `GREENLIGHT_DATA_KEY` resolving the user's own granted integrations through the same
   governed proxy. No credential lands on the laptop for proxied integrations.
 
-An app's access and the user's personal access are separate authorities: an app never runs on the
-user's grants, and holding personal access never activates an app grant. When personal work
-graduates into a real app, `registerApp` and declare the app's own `grants:` in the manifest.
+An app's access and the user's personal access are separate authorities: a **deployed** app never
+runs on the user's grants, and holding personal access never activates an app grant. Locally the
+line is drawn at the first merge — user mode is also how you run an app you're still building,
+since until that merge the app has no grants of its own (see _Local development_). When personal
+work graduates into a real app, `registerApp` and declare the app's own `grants:` in the manifest.
 
 ## Show your work: the local preview loop
 
@@ -356,19 +448,23 @@ and redirect while a change still costs seconds instead of a deploy's minutes. W
 
 1. **Run it locally, early.** Start the app under `greenlight run -- <dev command>` (see _Local
    development_) as soon as there is anything to render — a skeleton page beats a description.
-2. **Open it where the user can watch.** Put the `localhost` URL in a preview surface the user
-   themselves can see and click:
-   - **Claude Code:** use the built-in preview browser (`preview_start` and the other `preview_*`
-     tools, configured via `.claude/launch.json`) — start the dev server _through_ the preview tool
-     so the pane is live for the user, and reuse that running server across edits instead of
-     restarting per change.
-   - **Other agents:** the IDE's embedded browser or preview pane pointed at the port; if you have
-     no live pane at all, fall back to posting a screenshot of each changed screen into chat.
-   - **No browser tool at all** (no embedded pane, no browser extension — typical of remote or
-     headless CLI environments): render screens yourself with the Playwright CLI and headless
-     Chromium — `playwright screenshot --browser chromium --full-page "<url>" shot.png` — and post
-     each changed screen into chat. If the CLI isn't installed, run
-     `npx playwright install chromium` once, then `npx playwright screenshot …`.
+2. **Open it where the user can watch.** The deciding question is **whether the user's own browser
+   can reach your `localhost`** — not whether you have an embedded preview pane:
+   - **Your shell runs on the user's own machine** (Claude Code CLI, and generally any local,
+     non-containerized agent runtime): `http://localhost:<port>` is reachable in their own browser,
+     so **always give them the clickable link in chat text** — strictly better than any screenshot,
+     because they can click through the live flow themselves. An embedded pane is a bonus on top:
+     in Claude Code with preview tools, start the dev server _through_ `preview_start` (configured
+     via `.claude/launch.json`) and reuse that server across edits; in IDEs, point the embedded
+     browser at the port. Hand over the link either way.
+   - **Your shell is isolated from the user's machine** (remote, cloud, containerized, or CI-style
+     execution — a `localhost` link would be dead for them): render screens yourself with the
+     Playwright CLI and headless Chromium —
+     `playwright screenshot --browser chromium --full-page "<url>" shot.png` — and post each
+     changed screen into chat. If the CLI isn't installed, run `npx playwright install chromium`
+     once, then `npx playwright screenshot …`. **Inline images don't render reliably in every chat
+     surface** — the first time a session leans on posted screenshots, ask the user whether the
+     image actually rendered rather than assuming it did.
 3. **After each meaningful change, show it and say what it is.** Render the changed screen and
    exercise the specific thing you changed — click the button, submit the form; "the page loads" is
    not showing your work. Narrate in product terms: "here's the approval screen — managers now see
@@ -398,63 +494,6 @@ the user's own browser, or give them the URL as a last resort.
 **Embedded browsers block the clipboard.** `navigator.clipboard` and `execCommand('copy')` usually
 fail silently in agent preview panes. If the app hands the user text (a generated file, an ID),
 give them a download or a selectable text area — not only a "copy" button.
-
-## Local development with `greenlight run`
-
-The one CLI verb with no MCP equivalent — it delivers real secret values into a local process,
-which never crosses MCP.
-
-**`greenlight run`** is the standard — and only — local-run entry, with an explicit mode:
-
-- **App mode — `greenlight run --app <app_id> -- <your dev command>`** (e.g.
-  `greenlight run --app 3f25… -- npm run dev`) resolves the **app's** env contract server-side —
-  the same grants the deployed pod runs on, so local access mirrors production exactly. Use this
-  whenever you are developing an app.
-- **User mode — `greenlight run -- <your dev command>`** (no `--app`) resolves the **user's own
-  personal grants** instead (see _Personal data access_) — for no-app local work. It never injects
-  `DATABASE_URL` or `STORAGE_SAS_URL` (app resources are app-scoped). Omitting `--app` inside an
-  app checkout prints a warning and proceeds in user mode — mode is never guessed from the
-  directory, so pass `--app` explicitly for app work.
-- Extra local vars flow through unchanged: the ambient shell env, repeatable `--env KEY=VAL`, and
-  `--env-file <path>` — with Greenlight-managed names always injected last (they cannot be
-  clobbered).
-
-Either mode injects values **into your dev process only**: no `.env.local`, no file on disk, no
-local server, and no secret ever crosses MCP. App code is byte-identical to the deployed pod — same
-env-var names, different values — so always read env vars and never hardcode endpoints. There is
-**no `envPull` tool**; it was retired permanently — do not call it.
-
-**Know what's live vs. fixtures before you run.** Read `getApp` (grant `delivery_mode` +
-`local_dev_enabled`), and `greenlight run` prints a per-dependency status line at startup. At MVP:
-
-- **Injected integration with `local_dev_enabled`** → the real credential, in-process. Live.
-- **Injected integration with `local_dev_enabled: false`** → IT withholds it; author a fixture.
-- **Proxied integration with `local_dev_enabled`** → live through the same broker: `greenlight run`
-  mints a short-lived `purpose: 'local'` token and points the app at the real public proxy, so calls
-  go through the unchanged grant-check + credential-swap + audit path. No upstream secret on the
-  laptop.
-- **Proxied integration with `local_dev_enabled: false`** → IT withholds it in app mode; calls get
-  a `403`, so author a fixture for the loop. (In **user mode** a granted proxied integration is
-  always live — the flag gates only raw credential delivery, and proxied calls expose no secret.)
-- **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
-- **Blob** → a freshly minted short-TTL SAS. Live (app mode only).
-
-For anything fixture-only — or when the control plane is unreachable (corporate egress block) —
-write your own fixtures/mocks for that dependency and keep iterating, then confirm the real wiring
-after deploy (deployed-state reads, logs/metrics, and a `getAppPreviewUrl` session). If the app's
-runtime/deps are a heavy lift to set up locally, ship the code and show the deployed app instead —
-and tell the user that's what you did.
-
-## Current release availability
-
-The running MVP is still filling in a few surfaces. Not available yet: `getPolicies()` (infer
-enforced rules from pipeline output and the manifest), `getPermissions()` (read an **app's**
-grant/resource/env state from `getApp`; the user's own personal grant status is per credential on
-`listGrantableIntegrations` — see _Personal data access_), and
-`addCoOwner()`/the share flow (don't promise collaborator adds until it ships). Full MCP OAuth
-bearer enforcement and session-scoped ownership are still being wired — complete sign-in when
-prompted, but don't assume every co-owner path is live. A `tool not found` for one of these means
-the release is incomplete, not that the workflow is wrong.
 
 ## Operating constraints
 
@@ -534,8 +573,7 @@ MVP ships one `workloads.web` workload per app. It renders as a Kubernetes `Depl
 and route. The contract (some items pipeline-enforced, others recommended):
 
 - **You author the `Dockerfile`** for your stack — nothing is seeded. Use an **org-approved base
-  image**; until `getPolicies()` ships, follow the user's/org's stated base-image guidance and
-  avoid guessing.
+  image** — follow the user's/org's stated base-image guidance and avoid guessing.
 - **Prefer small, standard base images — the _same_ one every app on a runtime uses.** Smaller
   images build, push, and pull faster; identical bases mean the registry and nodes already hold
   those layers, so later builds and deploys hit cache. Don't invent a bespoke base per app.
@@ -705,6 +743,11 @@ through Greenlight so it is audited and policy-gated.
 For new work, run `git -C <dir> checkout main && git -C <dir> pull origin main && git -C <dir> checkout -b feat/<change>`; when resuming, run `git -C <dir> checkout <feature-branch> && git -C <dir> fetch origin && git -C <dir> merge origin/main`.
 Merge rather than rebase; resolve conflicts and re-run the app locally before continuing.
 
+**Every `mergePullRequest` lands as a squash commit**, so after a merge your old feature branch's
+tip is _not_ an ancestor of `main`. Always cut the next branch from freshly pulled `origin/main`,
+never from the previous feature branch — a stale base surfaces as a spurious
+"Pull Request has merge conflicts" error on a clean diff.
+
 ## Recovering from a pipeline failure
 
 The pipeline is your feedback loop; fix and re-push autonomously. Never ask the citizen developer
@@ -740,8 +783,8 @@ Use these tools together:
   reached the app. Use it to assert the exact API or server behavior requested; request headers and
   bodies on the CLI come from `--headers-file` / stdin / `--body-file`, never argv. Platform admins
   may use `as_user` / `--as-user` to reproduce another same-org user's view; the selected user must
-  still have access to the app. On `app.unreachable`, inspect `details.hit_app`, then call
-  `getAppDiagnostics` and `getLogs` before retrying; other roles must not impersonate.
+  still have access to the app. On `app.unreachable`, inspect `details.hit_app`, then check
+  `getApp` and `getLogs` before retrying; other roles must not impersonate.
 - **`getAppPreviewUrl({ app_id, path? })` — or `greenlight preview --app <id> [--path <p>]` — for
   browser behavior.** Mints a one-time URL you open in your own browser tool (IDE
   preview pane, Playwright, any headless browser). It signs you in through the SSO boundary with no
@@ -776,47 +819,12 @@ local loop.
 
 ## Reporting platform friction (for the Greenlight team, not the user)
 
-You are the best-placed observer of where Greenlight itself slows you down. When something about
-the **platform** — not the app you're building — costs you turns or would trip up the next agent,
-file a short report with `submitFeedback` (or `greenlight feedback`). It goes to the Greenlight
-platform developers who build this system; it is **not** customer IT support and **not** a channel
-to the citizen developer.
-
-**File one when:**
-
-- You hit a real platform bug — a tool returns the wrong thing, an error is misleading, a documented
-  flow doesn't work.
-- Friction cost you noticeable time and will recur for the next agent — a confusing tool choice, an
-  auth dead end, an unhelpful pipeline/deploy error, post-merge branch confusion, a Windows/setup gap.
-- You have a concrete improvement idea — "mention X in section Z of the skill", "return Y from
-  `getApp` so I don't need a second call".
-
-**Don't file for:** user-caused issues (they asked for something odd), or bugs in the app _you_
-wrote — those are yours to fix, not platform feedback.
-
-**How:** one consolidated report at a natural pause (after you've worked around it), not a stream of
-micro-reports. Pick a `category` (`bug` / `friction` / `suggestion` / `other`), a one-line `title`,
-and a concise Markdown body — aim for ≤ ~40 lines:
-
-```
-Context: what you were doing (register / grant / deploy / local run …).
-What happened: the behaviour, with any error `code`s and `request_id`s from the error envelope
-  (they let the team correlate to the audit log server-side).
-What you tried / how it resolved (or didn't).
-Suggested fix: the concrete change that would have prevented it.
-```
-
-The CLI twin takes the body on **stdin or `--body-file`**, never as an argv flag:
-`greenlight feedback --category friction --title "…" --body-file report.md`.
-
-**Never include** secrets, env values, tokens, credentials, or verbatim sensitive conversation
-content — **summarize** the platform interaction, describe _what you were trying to do_, not the
-business data. Include `request_id`s, not payloads.
-
-**Voice rule — this is plumbing.** Reporting is invisible to the citizen developer: never mention it,
-never ask permission to file, and treat it as fire-and-forget — if the call fails, drop it silently
-and keep going. It must never block or delay the user's actual task. (The dashboard has its own
-"Send feedback" form for humans; that's separate — you use the tool.)
+You are the best-placed observer of where Greenlight itself slows you down. When the **platform** —
+not the app you're building — costs you turns, misleads you, or hands you a concrete improvement
+idea, file a short report with `submitFeedback` (or `greenlight feedback`) at a natural pause: read
+the bundled [platform-feedback skill](../platform-feedback/SKILL.md) for when and how. Reporting is
+plumbing — invisible to the citizen developer, fire-and-forget, and never allowed to block or delay
+their actual task.
 
 ## Scope
 
