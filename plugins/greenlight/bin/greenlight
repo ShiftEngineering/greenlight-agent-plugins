@@ -1,6 +1,0 @@
-#!/bin/sh
-# @greenlight-spec: 20-agent-plugins.md
-# PATH shim: Claude Code puts a plugin's bin/ on the Bash tool's PATH, so
-# `greenlight …` resolves here. The bundled artifact stays the sibling .mjs
-# (extensionless ESM entries do not run on Node 20).
-exec node "$(dirname "$0")/greenlight.mjs" "$@"
