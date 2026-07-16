@@ -328,18 +328,16 @@ the log is your app's own output. To stop the server, signal the `greenlight` pr
 (`kill <pid>`) — the signal reaches the whole child tree (no `pkill -f` heuristics needed), and a
 tree that ignores SIGTERM is force-killed a few seconds later.
 
-**Know what's live vs. fixtures before you run.** Read `getApp` (grant `delivery_mode` +
-`local_dev_enabled`), and `greenlight run` prints a per-dependency status line at startup. At MVP:
+**Know what's live vs. fixtures before you run.** Read `getApp` (grant `delivery_mode`), and
+`greenlight run` prints a per-dependency status line at startup. A granted integration is live —
+the grant is the gate. At MVP:
 
-- **Injected integration with `local_dev_enabled`** → the real credential, in-process. Live.
-- **Injected integration with `local_dev_enabled: false`** → IT withholds it; author a fixture.
-- **Proxied integration with `local_dev_enabled`** → live through the same broker: `greenlight run`
-  mints a short-lived `purpose: 'local'` token and points the app at the real public proxy, so calls
-  go through the unchanged grant-check + credential-swap + audit path. No upstream secret on the
+- **Granted proxied integration** → live through the same broker: `greenlight run` mints a
+  short-lived `purpose: 'local'` token and points the app at the real public proxy, so calls go
+  through the unchanged grant-check + credential-swap + audit path. No upstream secret on the
   laptop.
-- **Proxied integration with `local_dev_enabled: false`** → IT withholds it in app mode; calls get
-  a `403`, so author a fixture for the loop. (In **user mode** a granted proxied integration is
-  always live — the flag gates only raw credential delivery, and proxied calls expose no secret.)
+- **Granted injected integration** → the real credential, in-process. Live.
+- **User-delegated integration** → no laptop actor token exists; author a fixture.
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
 - **Blob** → a freshly minted short-TTL SAS. Live (app mode only).
 

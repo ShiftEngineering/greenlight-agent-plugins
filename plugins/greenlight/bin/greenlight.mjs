@@ -16466,7 +16466,6 @@ var KILL_ESCALATION_MS = 5e3;
 var INTEGRATION_LABEL = {
   live_raw: "live (raw, injected)",
   live_proxy: "live (proxy token)",
-  fixtures_policy_off: "fixtures (local dev off)",
   fixtures_user_delegated: "fixtures (user-delegated)"
 };
 var RESOURCE_LABEL = {
