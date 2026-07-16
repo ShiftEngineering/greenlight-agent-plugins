@@ -16564,11 +16564,10 @@ function spawnChild(devCommand, contract) {
     // whole tree (`npm run dev` → node), not just the direct child.
     detached: posix
   });
+  const shownCmd = cmd.replace(new RegExp("\\p{Cc}", "gu"), " ");
   child.on("spawn", () => {
-    process.stderr.write(
-      `[greenlight] ready \u2014 \`${devCommand.join(" ")}\` is running (pid ${child.pid}).
-`
-    );
+    process.stderr.write(`[greenlight] ready \u2014 \`${shownCmd}\` is running (pid ${child.pid}).
+`);
   });
   const killTree = (sig) => {
     if (child.pid === void 0) return;
@@ -16581,25 +16580,54 @@ function spawnChild(devCommand, contract) {
     }
     child.kill(sig);
   };
-  const restartTimer = scheduleExpiryNotice(contract.expires_at, () => child.killed === false);
-  let escalation;
-  const forward = (sig) => () => {
-    killTree(sig);
-    escalation ??= setTimeout(() => killTree("SIGKILL"), KILL_ESCALATION_MS);
-    if (typeof escalation.unref === "function") escalation.unref();
+  const groupAlive = () => {
+    if (!posix || child.pid === void 0) return false;
+    try {
+      process.kill(-child.pid, 0);
+      return true;
+    } catch (err) {
+      return err.code === "EPERM";
+    }
   };
-  const onSigint = forward("SIGINT");
-  const onSigterm = forward("SIGTERM");
-  process.on("SIGINT", onSigint);
-  process.on("SIGTERM", onSigterm);
+  const restartTimer = scheduleExpiryNotice(contract.expires_at, () => child.killed === false);
   return new Promise((resolvePromise, reject) => {
+    let settled = false;
+    let terminating = false;
+    let sigkillSent = false;
+    let pendingExit;
+    let escalation;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolvePromise(result);
+    };
+    const forward = (sig) => () => {
+      terminating = true;
+      killTree(sig);
+      escalation ??= setTimeout(() => {
+        sigkillSent = true;
+        killTree("SIGKILL");
+        if (pendingExit !== void 0) settle(pendingExit);
+      }, KILL_ESCALATION_MS);
+    };
+    const onSigint = forward("SIGINT");
+    const onSigterm = forward("SIGTERM");
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
     child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
       cleanup();
       reject(new CliError(`Failed to start \`${cmd}\`: ${err.message}`));
     });
     child.on("exit", (code, signal) => {
-      cleanup();
-      resolvePromise(signal ? 1 : code ?? 0);
+      const result = signal ? 1 : code ?? 0;
+      if (terminating && !sigkillSent && groupAlive()) {
+        pendingExit = result;
+        return;
+      }
+      settle(result);
     });
     function cleanup() {
       if (restartTimer) clearTimeout(restartTimer);
@@ -17323,10 +17351,16 @@ Approve it from your agent (it is already signed in to Greenlight):
   const timedOut = () => Date.now() > deadline;
   let deliveryMissed = false;
   for (; ; ) {
-    await sleep(POLL_INTERVAL_MS);
+    const beforeSleep = deadline - Date.now();
+    if (beforeSleep <= 0) throw timeoutError(deliveryMissed);
+    await sleep(Math.min(POLL_INTERVAL_MS, beforeSleep));
+    const budget = deadline - Date.now();
+    if (budget <= 0) throw timeoutError(deliveryMissed);
     let polled;
     try {
-      polled = await jsonRequest("GET", `${apiBase}/api/cli/sessions/${sessionId}`);
+      polled = await jsonRequest("GET", `${apiBase}/api/cli/sessions/${sessionId}`, {
+        timeoutMs: budget
+      });
     } catch {
       if (timedOut()) throw timeoutError(deliveryMissed);
       continue;
@@ -17414,8 +17448,19 @@ var HEARTBEAT_MS = 30 * 1e3;
 var CALLBACK_PATH = "/callback";
 async function cmdLogin(apiBase, deps = {}, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
+  const deadlineAt = Date.now() + timeoutMs;
+  let deadlineTimer;
+  const deadline = new Promise((_, reject) => {
+    deadlineTimer = setTimeout(() => reject(loginTimedOut()), timeoutMs);
+  });
+  if (deadlineTimer && typeof deadlineTimer.unref === "function") deadlineTimer.unref();
+  const fetchWithDeadline = (input, init) => {
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) return Promise.reject(loginTimedOut());
+    return fetch(input, { ...init, signal: AbortSignal.timeout(remaining) });
+  };
   const state = randomBytes4(16).toString("base64url");
-  const loopback = await startLoopback(state, apiBase, timeoutMs);
+  const loopback = await startLoopback(state, apiBase);
   const provider = new GreenlightOAuthProvider(apiBase, loopback.redirectUri, state, {
     staged: true
   });
@@ -17442,33 +17487,53 @@ ${url2.toString()}
   );
   if (typeof heartbeat.unref === "function") heartbeat.unref();
   try {
-    const started = await auth(provider, { serverUrl: apiBase, scope: OAUTH_SCOPE });
+    const started = await Promise.race([
+      auth(provider, { serverUrl: apiBase, scope: OAUTH_SCOPE, fetchFn: fetchWithDeadline }),
+      deadline
+    ]);
     if (started === "AUTHORIZED") {
       provider.commitStaged();
       note("Already signed in to Greenlight.");
       return;
     }
     if (started !== "REDIRECT") throw new CliError(`Unexpected OAuth state: ${started}`);
-    const code = await loopback.waitForCode();
-    const finished = await auth(provider, {
-      serverUrl: apiBase,
-      authorizationCode: code,
-      scope: OAUTH_SCOPE
-    });
+    const code = await Promise.race([loopback.waitForCode(), deadline]);
+    const finished = await Promise.race([
+      auth(provider, {
+        serverUrl: apiBase,
+        authorizationCode: code,
+        scope: OAUTH_SCOPE,
+        fetchFn: fetchWithDeadline
+      }),
+      deadline
+    ]);
     if (finished !== "AUTHORIZED") throw new CliError("OAuth authorization did not complete.");
     provider.commitStaged();
     note(`Signed in to Greenlight. The CLI credential is stored in ${credentialStoreLabel()}.`);
+  } catch (err) {
+    if (!(err instanceof CliError) && Date.now() >= deadlineAt) throw loginTimedOut();
+    throw err;
   } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
     clearInterval(heartbeat);
     loopback.close();
   }
 }
-async function startLoopback(expectedState, apiBase, timeoutMs) {
+function loginTimedOut() {
+  return new CliError(
+    "Timed out waiting for the browser sign-in. Run `greenlight login` again.",
+    "auth.login_timed_out",
+    3
+  );
+}
+async function startLoopback(expectedState, apiBase) {
   let resolveCode;
   let rejectCode;
   const codePromise = new Promise((res, rej) => {
     resolveCode = res;
     rejectCode = rej;
+  });
+  codePromise.catch(() => {
   });
   const server = createServer((req, res) => {
     const url2 = new URL3(req.url ?? "/", "http://127.0.0.1");
@@ -17508,20 +17573,9 @@ async function startLoopback(expectedState, apiBase, timeoutMs) {
     throw new CliError("Could not bind a loopback port for the sign-in redirect.");
   }
   const redirectUri = `http://127.0.0.1:${address.port}${CALLBACK_PATH}`;
-  const timer = setTimeout(
-    () => rejectCode(
-      new CliError(
-        "Timed out waiting for the browser sign-in. Run `greenlight login` again.",
-        "auth.login_timed_out",
-        3
-      )
-    ),
-    timeoutMs
-  );
-  if (typeof timer.unref === "function") timer.unref();
   return {
     redirectUri,
-    waitForCode: () => codePromise.finally(() => clearTimeout(timer)),
+    waitForCode: () => codePromise,
     close: () => server.close()
   };
 }
