@@ -81,6 +81,8 @@ prompt, or run a command.
   prompts (see _Starting from an idea_).
 - **Their main feedback signal is seeing the app.** Show a running app early and often, and narrate
   what changed in product terms. See _Show your work_.
+- **Match the user's level.** Product language is the default. If they talk in technical terms or
+  ask for plumbing (diff, logs, repo), answer in kind — you still run the workflow yourself.
 
 ## Starting from an idea: discover, then propose
 
@@ -677,6 +679,30 @@ entry frequently won't exist. When it's absent, read the provider's own public A
 source to work out endpoints, params, and the auth slot yourself, confirm it against a real call,
 and then `knowledgePropose` an integration-scope entry so the next agent doesn't repeat the dig
 (see _Starting from an idea_). Never fall back to hardcoded assumptions baked into this file.
+
+### The org user directory (`greenlight-directory`)
+
+For multi-user features — an assignee dropdown, a "request approval from…" picker, @-mentions,
+resolving a stored user id back to a name — never scrape identities from `X-User-*` headers you've
+seen, ask for a CSV export, or request IdP directory scopes. Greenlight exposes the org roster as a
+first-party **system integration** named `greenlight-directory`: declare it in `grants:` like any
+integration (credential slug `read`), and once granted, query it through the proxy with the app's
+existing data key (`Authorization: Bearer $GREENLIGHT_DATA_KEY`):
+
+- `GET ${GREENLIGHT_PROXY_URL}/greenlight-directory/users` — cursor-paginated
+  (`cursor`/`limit`), `q=<substring>` filters case-insensitively on display name and email
+  (use it for typeahead), `include_inactive=true` includes deactivated users.
+- `GET ${GREENLIGHT_PROXY_URL}/greenlight-directory/users/<id>` — one user; deactivated users
+  ARE returned, so a stored id whose owner has left still renders. Unknown id →
+  `404 proxy.user_not_found`.
+
+Each user carries exactly `id`, `email`, `display_name` (nullable), `is_active` — nothing else
+exists in the API. Store `id` (stable); render `display_name ?? email`. Do **not** cache or copy
+the roster into the app's own database — query with `q` instead, and resolve stored ids with the
+single-user read. Current-request identity still comes from the `X-User-*` headers (below), never
+from the directory; the directory is for _other_ users. It appears in `listGrantableIntegrations`
+like any integration, and the roster is Greenlight's mirrored user table (people who can actually
+reach Greenlight apps), not the customer's full IdP tenant.
 
 ## Knowing who the signed-in user is (the `X-User-*` headers)
 
