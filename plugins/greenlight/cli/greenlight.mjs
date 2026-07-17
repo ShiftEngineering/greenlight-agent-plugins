@@ -17102,6 +17102,18 @@ var MCP_COMMANDS = {
         type: "number",
         required: true,
         describe: "Pull request number."
+      },
+      "head-sha": {
+        field: "expected_head_sha",
+        type: "string",
+        required: true,
+        describe: "PR head commit SHA observed passing via `pipeline --wait`. Merge fails closed if the PR has moved past it or that SHA has not passed."
+      },
+      method: {
+        field: "method",
+        type: "enum",
+        enumValues: ["squash", "merge", "rebase"],
+        describe: "Merge strategy (default squash)."
       }
     }
   },

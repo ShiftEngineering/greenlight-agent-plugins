@@ -245,11 +245,14 @@ The standard new-app loop:
    and that branch). Do this through Greenlight, never with `gh` or the GitHub API (see _Source
    control_ below).
 6. **Wait, then merge.** Poll `getPipelineRun` (`greenlight pipeline --pr <n> --wait`) with
-   `pull_request_number` and `wait: true`. Once it passes, merge through Greenlight with
-   `mergePullRequest({ app_id, pull_request_number })` or `greenlight pr merge` — **never** `gh pr merge`
-   or the GitHub API. **The merge is the apply trigger** — it provisions declared resources, reconciles
-   grants, builds and rolls out the workload. Don't stop to ask the user whether to merge: if they
-   asked for the change to go live, a green pipeline is your signal to proceed.
+   `pull_request_number` and `wait: true`. Once it returns `passed`, take its `commit_sha` and merge
+   through Greenlight with `mergePullRequest({ app_id, pull_request_number, expected_head_sha:
+commit_sha })` or `greenlight pr merge` — **never** `gh pr merge` or the GitHub API. Merge fails
+   closed if the PR has moved past that SHA (a new push landed) or that SHA hasn't passed; re-poll
+   `getPipelineRun` on the new head and retry. **The merge is the apply trigger** — it provisions
+   declared resources, reconciles grants, builds and rolls out the workload. Don't stop to ask the
+   user whether to merge: if they asked for the change to go live, a green pipeline is your signal to
+   proceed.
 7. **Observe the deploy, then verify.** Poll `getPipelineRun` again on the merge SHA (`commit_sha`,
    `wait: true`), then `getApp` (`greenlight apps show`) for the live state and deployment URL.
    **Then verify the change actually does what the user asked** (see _Verifying a deployed app_)
@@ -759,7 +762,8 @@ yourself. The governed change request then goes through MCP:
 - **Open** with `createPullRequest` **after your feature branch is pushed** — an unpushed branch
   has no commits to propose. Pass `app_id` and the head branch; Greenlight resolves the repo.
 - **Merge** with `mergePullRequest` only after you have observed a passing pipeline for the exact
-  head SHA. Direct pushes to `main` are blocked by branch protection.
+  head SHA — pass it as `expected_head_sha`; merge fails closed if the PR moved past it or that SHA
+  didn't pass. Direct pushes to `main` are blocked by branch protection.
 
 Do **not** use `gh`, the GitHub API, or any other path to open or merge a PR — the change must flow
 through Greenlight so it is audited and policy-gated.
