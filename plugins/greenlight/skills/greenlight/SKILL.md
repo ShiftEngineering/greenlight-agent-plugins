@@ -289,7 +289,7 @@ delivers real secret values into a local process, which never crosses MCP. The m
   merge the app has no grants or resources of its own, so request what the app needs under your own
   identity (`requestCredentialAccess`) and build the whole thing locally against real proxied data.
   The same mode covers no-app work — scripts, notebooks, data exploration. It never injects
-  `DATABASE_URL` or `STORAGE_SAS_URL` (app resources are app-scoped).
+  `DATABASE_URL` or `STORAGE_ACCESS_URL` (app resources are app-scoped).
 - **App mode — `greenlight run --app <app_id> -- <your dev command>`** (e.g.
   `greenlight run --app 3f25… -- npm run dev`) resolves the **app's** env contract server-side —
   the same grants the deployed pod runs on, so local access mirrors production exactly. The
@@ -341,7 +341,7 @@ the grant is the gate. At MVP:
 - **Granted injected integration** → the real credential, in-process. Live.
 - **User-delegated integration** → no laptop actor token exists; author a fixture.
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
-- **Blob** → a freshly minted short-TTL SAS. Live (app mode only).
+- **Blob** → a freshly minted short-TTL credential. Live (app mode only).
 
 For anything still fixture-only — a manual-approval credential, a declined personal request, or an
 unreachable control plane (corporate egress block) — write your own fixtures/mocks for that
@@ -514,7 +514,7 @@ rejects them as reserved.
 | If the manifest declares…                         | The pod receives…                                               |
 | ------------------------------------------------- | --------------------------------------------------------------- |
 | `resources:` with `kind: postgres`                | `DATABASE_URL`                                                  |
-| `resources:` with `kind: blob`                    | `STORAGE_SAS_URL`, `STORAGE_CONTAINER_NAME`                     |
+| `resources:` with `kind: blob`                    | `STORAGE_ACCESS_URL`, `STORAGE_CONTAINER_NAME`                  |
 | a `grants:` entry for a **proxied** integration   | `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`                   |
 | a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name |
 | an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                   |
@@ -529,7 +529,9 @@ app gets.** A grant awaiting IT approval (`status: pending`, `approval_mode: man
 redeploys, and a pending injected grant does **not** give the app `GREENLIGHT_DATA_KEY` (that is only
 for proxied grants). `getApp`/`envList` reflect this — a pending injected grant shows its
 `env_var_name` on the grant but does not list it as a managed name. The fixed reserved set — rejected by `envSet` and the manifest validator regardless of
-what the app declares — is `DATABASE_URL`, `STORAGE_SAS_URL`, `STORAGE_CONTAINER_NAME`,
+what the app declares — is `DATABASE_URL`, `STORAGE_ACCESS_URL`, `STORAGE_ACCESS_TOKEN`,
+`STORAGE_ENDPOINT`, `STORAGE_CONTAINER_NAME`, `STORAGE_SAS_URL` (Azure legacy alias for
+`STORAGE_ACCESS_URL`, deprecation-window only — prefer `STORAGE_ACCESS_URL`),
 `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`, `PORT`, `GREENLIGHT_AI_KEY`,
 `GREENLIGHT_AI_BASE_URL`, `PUBLIC_BASE_URL`, `DEV_USER_EMAIL`, `DEV_USER_GROUPS`; each injected
 integration additionally reserves its own env-var name per-app. User-declared names must match
