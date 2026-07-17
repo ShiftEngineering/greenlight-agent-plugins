@@ -21,6 +21,9 @@ Authorization: Bearer ${GREENLIGHT_DATA_KEY}
 { "sql": "SELECT id, name FROM [Worker] WHERE id = @p1", "params": [42] }
 ```
 
+- **User attribution:** when calling `/query` while handling a user request, forward the inbound
+  `X-Greenlight-Actor-Token` if present, following the core skill's _Preserve user attribution_
+  rule.
 - **Parameterize, always.** `params` binds positionally to Azure SQL's `@p1…` placeholders. Values
   are `string | number | boolean | null` only. Numeric integer params must fit JavaScript's
   safe-integer range; pass larger integers, exact decimals, dates, and binary as strings and

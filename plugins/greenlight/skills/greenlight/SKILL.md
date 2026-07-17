@@ -664,10 +664,31 @@ A granted integration reaches its upstream one of two ways, set per-integration 
 - **Injected**: the bound credential is injected into the pod under the integration's fixed
   env-var name (shown by `getApp`). Read it from `process.env` and call the upstream with it.
 
-Either way, never hardcode or commit a credential. For user-delegated (always proxied)
-integrations, forward the inbound `X-Greenlight-Actor-Token` request header to the proxy
-unchanged — never inspect, log, or store it; it is an opaque token the proxy exchanges for a
-user-scoped upstream credential.
+Either way, never hardcode or commit a credential.
+
+### Preserve user attribution
+
+Greenlight injects an opaque `X-Greenlight-Actor-Token` header into every authenticated request
+your app receives (`curlApp` and preview sessions carry it too). For each proxied call made while
+handling a user request — REST proxy, connected-database `/query`, `greenlight-directory`, the AI
+gateway — forward that header unchanged so Greenlight attributes the audit event to that user. If
+the header is absent, omit it; the call is attributed to the app workload.
+
+```js
+const actorToken = req.headers['x-greenlight-actor-token'];
+
+await fetch(`${process.env.GREENLIGHT_PROXY_URL}/<integration>/...`, {
+  headers: {
+    Authorization: `Bearer ${process.env.GREENLIGHT_DATA_KEY}`,
+    ...(actorToken ? { 'X-Greenlight-Actor-Token': actorToken } : {}),
+  },
+});
+```
+
+Treat the token as opaque and request-scoped: never inspect, log, store, or reuse it beyond the
+request that carried it — reuse misattributes data access. Background work (startup tasks, timers,
+queue consumers, scheduled jobs) has no user and no token: workload attribution is the correct
+outcome there, so never mint or replay a token for it.
 
 ### Connected databases
 
