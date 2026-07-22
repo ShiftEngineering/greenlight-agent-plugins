@@ -25,7 +25,10 @@ metadata:
 Read this skill **in full** before you act on Greenlight work, and read it again after any context
 compaction or summary — the order of operations and the tool choices below are load-bearing, and
 acting on a half-remembered version is how apps get built the wrong way. If you delegate Greenlight
-work to a subagent, make sure it has read this skill too.
+work to a subagent, make sure it has read this skill too. If this file is not in your context —
+the plugin skill isn't loaded, or it was lost after compaction — but MCP or the CLI is reachable,
+call `getBuilderSkill` / `greenlight skill show` to fetch this exact file rather than proceeding
+from a half-remembered version.
 
 If the Greenlight MCP tools aren't in your tool list, or a tool call starts returning auth errors,
 you are not connected — **do not** tell the user "the tools aren't available" and stop. You have two
@@ -191,6 +194,7 @@ time out), or pass `--timeout <seconds>`; confirm completion with `greenlight wh
 | See a deployed app in a browser (render, click, screenshot)   | `getAppPreviewUrl`                                                        | `preview --app <id>`                               |
 | Share / unshare app ownership                                 | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                                |
 | Report platform friction to the Greenlight team               | `submitFeedback`                                                          | `feedback --category <c> --title "…"`              |
+| Re-read this Skill (not loaded, or lost after compaction)     | `getBuilderSkill`                                                         | `skill` / `skill show [--name <skill>]`            |
 
 CLI-only helpers: `greenlight doctor`, `greenlight whoami`, `greenlight logout`. Recover flag
 detail from `greenlight help` or `greenlight <command> --help` — never guess.

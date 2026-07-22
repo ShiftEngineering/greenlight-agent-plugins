@@ -16776,6 +16776,17 @@ var slugOptional = {
   type: "string",
   describe: "App slug (alternative to --app)."
 };
+var skillShowSpec = {
+  tool: "getBuilderSkill",
+  summary: "Print the universal Greenlight Builder Skill markdown (core, or a focused skill by name).",
+  flags: {
+    name: {
+      field: "skill",
+      type: "string",
+      describe: 'Focused skill name (defaults to the core "greenlight" skill).'
+    }
+  }
+};
 var MCP_COMMANDS = {
   "apps list": {
     tool: "listApps",
@@ -17169,7 +17180,9 @@ var MCP_COMMANDS = {
     tool: "removeCoOwner",
     summary: "Remove an app co-owner by email.",
     flags: { app: appRequired, email: userEmailRequired, reason: reasonRequired }
-  }
+  },
+  skill: skillShowSpec,
+  "skill show": skillShowSpec
 };
 var DEFAULT_WAIT_SECONDS = 120;
 var WAIT_TIMEOUT_BUFFER_MS = 15e3;
