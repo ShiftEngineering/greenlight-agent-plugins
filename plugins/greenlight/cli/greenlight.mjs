@@ -16463,6 +16463,7 @@ import { readFileSync as readFileSync4 } from "node:fs";
 import { dirname as dirname2, join as join2, resolve } from "node:path";
 var MAX_TIMER_MS = 2147483647;
 var KILL_ESCALATION_MS = 5e3;
+var GROUP_POLL_MS = 50;
 var INTEGRATION_LABEL = {
   live_raw: "live (raw, injected)",
   live_proxy: "live (proxy token)",
@@ -16596,6 +16597,7 @@ function spawnChild(devCommand, contract) {
     let sigkillSent = false;
     let pendingExit;
     let escalation;
+    let groupPoll;
     const settle = (result) => {
       if (settled) return;
       settled = true;
@@ -16607,6 +16609,7 @@ function spawnChild(devCommand, contract) {
       killTree(sig);
       escalation ??= setTimeout(() => {
         sigkillSent = true;
+        if (groupPoll) clearInterval(groupPoll);
         killTree("SIGKILL");
         if (pendingExit !== void 0) settle(pendingExit);
       }, KILL_ESCALATION_MS);
@@ -16625,6 +16628,12 @@ function spawnChild(devCommand, contract) {
       const result = signal ? 1 : code ?? 0;
       if (terminating && !sigkillSent && groupAlive()) {
         pendingExit = result;
+        groupPoll = setInterval(() => {
+          if (groupAlive()) return;
+          if (groupPoll) clearInterval(groupPoll);
+          if (escalation) clearTimeout(escalation);
+          settle(result);
+        }, GROUP_POLL_MS);
         return;
       }
       settle(result);
@@ -16632,6 +16641,7 @@ function spawnChild(devCommand, contract) {
     function cleanup() {
       if (restartTimer) clearTimeout(restartTimer);
       if (escalation) clearTimeout(escalation);
+      if (groupPoll) clearInterval(groupPoll);
       process.off("SIGINT", onSigint);
       process.off("SIGTERM", onSigterm);
     }
