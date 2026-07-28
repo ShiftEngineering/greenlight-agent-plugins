@@ -232,12 +232,14 @@ The standard new-app loop:
    The app sits idle, at zero cost, until the first merge. Returns `app_id` and a short-lived
    clone token.
 2. **Clone and write code — showing the user as you go.** Fill in the required `docs` block (the
-   pipeline blocks deploy without it) and a `README.md`. Write your `Dockerfile` and `src/`. As
-   soon as there is anything to render, run the app locally and put it in front of the user — see
-   _Show your work_. Until the first merge the app's own grants and resources don't exist, so run
-   it in **user mode** on your own requested access (see _Local development_) — the whole app can
-   be built and demoed this way before anything deploys. Iterate here, where a change costs
-   seconds, not in the deploy loop.
+   pipeline blocks deploy without it), a `README.md`, and `.greenlight/icon.svg` — a dashboard icon
+   for the app, authored the same way: by you, unprompted, never something you ask the user to
+   request or approve (see _A default dashboard icon_ below for what makes a good one). Write your
+   `Dockerfile` and `src/`. As soon as there is anything to render, run the app locally and put it
+   in front of the user — see _Show your work_. Until the first merge the app's own grants and
+   resources don't exist, so run it in **user mode** on your own requested access (see _Local
+   development_) — the whole app can be built and demoed this way before anything deploys. Iterate
+   here, where a change costs seconds, not in the deploy loop.
 3. **Declare infrastructure** by uncommenting and editing `greenlight.yml`: add `workloads.web`,
    any `resources`, any integration `grants`, and the _names_ of env vars under `env`.
 4. **Set env-var values** for each name you declared, with `envSet` or `greenlight env set` — pass
@@ -267,6 +269,18 @@ _Sync with `main` before editing_), edit `greenlight.yml` and/or code, show the 
 locally, PR, merge, verify. **Every change ends with verification** — there is no "done" you
 report without having watched the requested behavior work.
 
+**A default dashboard icon.** Every new app ships with `.greenlight/icon.svg` — you author it in
+step 2 above, the same way you author `README.md`, without being asked. Make it simple, distinct,
+tasteful, and reflective of what the app does; legible at dashboard-tile size matters more than
+detail. Hard constraints Greenlight validates at deploy: square (square `viewBox` or square
+`width`/`height`), at least **120×120** logical size, at most **64 KiB**, no `<script>`,
+event-handler attributes, `<foreignObject>`, or external/remote references (no `http(s)`/`//`
+`href` or `url()`); SVG only at MVP, authored deterministically as text. Omitting the file is
+normal — the `/apps` dashboard tile falls back to the generated monogram — and an invalid file is
+ignored rather than failing the deploy; those are the only two "no icon" outcomes, not something to
+ask the user about. The only reason to skip authoring one is the user proactively saying they don't
+want an icon.
+
 For any shipping change, copy this checklist and check items off as you go — it exists to stop the
 two most-skipped steps (showing the user before shipping, and verifying after deploy):
 
@@ -274,6 +288,7 @@ two most-skipped steps (showing the user before shipping, and verifying after de
 Ship progress:
 - [ ] Checkout synced with main before editing (Sync with main before editing)
 - [ ] Change built and running locally (greenlight run)
+- [ ] .greenlight/icon.svg authored (new app)
 - [ ] User has seen it working in the preview (Show your work)
 - [ ] Env names declared + values set (no MISSING_ENV_VALUE at merge)
 - [ ] Branch pushed, PR opened through Greenlight
@@ -642,14 +657,9 @@ and route. The contract (some items pipeline-enforced, others recommended):
 - Do not implement authentication — SSO is enforced at the ingress for every route but `/healthz`.
   Your app still **receives** the signed-in user's identity on every request — see _Knowing who the
   signed-in user is_. Do not bundle a `.env` file or any credential.
-- **Encouraged, but optional: a dashboard icon.** Make a simple, tasteful, unique icon for the app
-  and commit it as `.greenlight/icon.svg` so the `/apps` dashboard tile shows it instead of the
-  generated monogram — a **square** SVG, at least **120×120** logical size (square `viewBox` or
-  square `width`/`height`), with **no** `<script>`, event-handler attributes, `<foreignObject>`, or
-  external/remote references (no `http(s)`/`//` `href` or `url()`). Greenlight validates and
-  normalizes it at deploy. Omitting the file is normal (the monogram stays); an invalid file is
-  ignored and never fails the deploy. Prefer SVG (you can author it deterministically as text);
-  raster icons are not read at MVP.
+- **Dashboard icon: authored earlier, not here.** `.greenlight/icon.svg` is authored as a default
+  step of the new-app loop (see _A default dashboard icon_ under _How work flows_), the same way
+  `README.md` is — not a decision to make at packaging time.
 
 ## Reaching company data
 
