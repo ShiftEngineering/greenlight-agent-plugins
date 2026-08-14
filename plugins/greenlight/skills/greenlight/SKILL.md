@@ -126,8 +126,10 @@ jumps straight into an existing app still needs the org's conventions. Then: rea
 (`knowledgeList({ scope: 'integration', integration })` + `knowledgeGet`) before writing
 data-access code; `knowledgeSearch({ query })` when you're stuck; `knowledgePropose({ …, rationale })`
 when you learn something future sessions need — it files a proposal for human review, never a
-direct edit. Each has a CLI twin (`greenlight knowledge list/get/search/propose`). There is no tool
-that returns the enforced pipeline rules; infer policy from pipeline output and the manifest.
+direct edit. Each has a CLI twin (`greenlight knowledge list/get/search/propose`). For the enforced pipeline
+rules, call `getPolicies()` — it returns each check with its enforcement level and any config,
+such as the approved base-image list, so you can satisfy the gate before pushing rather than
+after it fails. A check reporting `inactive_reason` will not fire, so do not code around it.
 
 **Knowledge is a best-effort head start, not a precondition.** Check it — it often saves real work —
 but do not assume an entry exists for a given org, app, or integration, or that any entry it does
