@@ -535,14 +535,29 @@ Greenlight injects **managed** env vars into the running pod, derived from what 
 declares. Your code reads them from the environment; you never declare or set them, and `envSet`
 rejects them as reserved.
 
-| If the manifest declares…                         | The pod receives…                                               |
-| ------------------------------------------------- | --------------------------------------------------------------- |
-| `resources:` with `kind: postgres`                | `DATABASE_URL`                                                  |
-| `resources:` with `kind: blob`                    | `STORAGE_ACCESS_URL`, `STORAGE_CONTAINER_NAME`                  |
-| a `grants:` entry for a **proxied** integration   | `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`                   |
-| a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name |
-| an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                   |
-| always (a `web` workload)                         | `PORT`                                                          |
+| If the manifest declares…                         | The pod receives…                                                                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `resources:` with `kind: postgres`                | `DATABASE_URL`                                                                                                     |
+| `resources:` with `kind: blob`                    | `STORAGE_CONTAINER_NAME` always; `STORAGE_ACCESS_URL` and `STORAGE_OBJECT_PREFIX` when present — see the blob note |
+| a `grants:` entry for a **proxied** integration   | `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`                                                                      |
+| a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name                                                    |
+| an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                                                                      |
+| always (a `web` workload)                         | `PORT`                                                                                                             |
+
+**Blob access: use the variables you were given, all of them.** `getApp` lists the app's exact
+managed variables. Read that list and follow it:
+
+- **`STORAGE_CONTAINER_NAME`** is always the container or bucket you open. Pass it to your storage
+  SDK as-is.
+- **`STORAGE_OBJECT_PREFIX`**, when present, is where your app's objects live inside that container.
+  Prepend it to every object key. It appears when apps share one bucket, and writing outside it is
+  refused — this is enforced, not a convention.
+- **`STORAGE_ACCESS_URL`**, when present, is a pre-authorized URL for the container; use it directly.
+  When it is absent the container is reached by the pod's own identity instead, so let your SDK pick
+  up ambient credentials (`@google-cloud/storage` with Application Default Credentials; the AWS
+  SDK's default provider chain) — you never handle a key either way.
+
+Treat every one of these as absent-until-listed rather than assuming a fixed set.
 
 Whether a grant delivers the proxy pair (**proxied**) or a direct credential under a fixed name
 (**injected**) is a property of the integration (`delivery_mode`), not the manifest — so the exact
