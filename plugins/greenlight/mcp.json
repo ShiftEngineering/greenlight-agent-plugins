@@ -1,6 +1,8 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
     "greenlight": {
+      "type": "streamable-http",
       "url": "https://dev.greenlight.shifthq.ai/mcp"
     }
   }
