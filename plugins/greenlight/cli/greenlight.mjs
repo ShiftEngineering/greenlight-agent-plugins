@@ -16741,8 +16741,147 @@ async function cmdRun(apiBase, opts, devCommand) {
   return spawnChild(devCommand, contract);
 }
 
+// packages/cli/src/commands/knowledge-asset.ts
+import { createHash as createHash2 } from "node:crypto";
+import { lstatSync, mkdirSync as mkdirSync2, unlinkSync as unlinkSync2, writeFileSync } from "node:fs";
+import { dirname as dirname3 } from "node:path";
+var KNOWLEDGE_ASSET_GET_FLAGS = {
+  id: {
+    field: "id",
+    type: "string",
+    format: "uuid",
+    describe: "Asset id (from `knowledge asset list`)."
+  },
+  out: {
+    field: "__out",
+    type: "string",
+    required: true,
+    describe: "Path to write the file to. Parent directories are created."
+  },
+  integration: {
+    field: "integration",
+    type: "string",
+    describe: "Integration slug; required when the address scope is `integration`."
+  },
+  app: {
+    field: "app_id",
+    type: "string",
+    format: "uuid",
+    describe: "App id; required when the address scope is `app`."
+  }
+};
+function splitAddressArgv(argv, specs) {
+  const rest = [];
+  let address;
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (token.startsWith("--")) {
+      rest.push(token);
+      const spec = specs[token.slice(2)];
+      if (spec && spec.type !== "boolean" && argv[i + 1] !== void 0) {
+        rest.push(argv[i + 1]);
+        i += 1;
+      }
+      continue;
+    }
+    if (address === void 0) address = token;
+    else rest.push(token);
+  }
+  return address === void 0 ? { rest } : { address, rest };
+}
+async function cmdKnowledgeAssetGet(apiBase, argv, global) {
+  const { address: positional, rest } = splitAddressArgv(argv, KNOWLEDGE_ASSET_GET_FLAGS);
+  const flags = parseFlags(rest, KNOWLEDGE_ASSET_GET_FLAGS);
+  const outPath = flags["__out"];
+  const args = {};
+  if (positional) {
+    const parts = positional.split("/");
+    if (parts.length !== 3) {
+      throw new CliError(
+        `Address must be <scope>/<topic>/<slug>, got '${positional}'.`,
+        "validation.body_invalid",
+        2
+      );
+    }
+    const [scope, topic, slug] = parts;
+    Object.assign(args, { scope, topic, slug });
+    if (flags["integration"] !== void 0) args["integration"] = flags["integration"];
+    if (flags["app_id"] !== void 0) args["app_id"] = flags["app_id"];
+  } else if (flags["id"]) {
+    args["id"] = flags["id"];
+  } else {
+    throw new CliError("Provide <scope>/<topic>/<slug> or --id.", "validation.body_invalid", 2);
+  }
+  const result = await callTool(apiBase, "knowledgeAssetGet", args, { debug: global.debug });
+  if (result.isError) {
+    emit(result.structuredContent);
+    return exitCodeForToolError(result.structuredContent);
+  }
+  const asset = readAssetResult(result.structuredContent);
+  const response = await fetch(asset.download_url);
+  if (!response.ok) {
+    throw new CliError(
+      `Download failed with HTTP ${response.status}. The URL may have expired \u2014 re-run to mint a fresh one.`,
+      "knowledge.asset_download_failed",
+      1
+    );
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const actual = createHash2("sha256").update(bytes).digest("hex");
+  if (actual !== asset.checksum_sha256) {
+    throw new CliError(
+      `Checksum mismatch: expected ${asset.checksum_sha256}, got ${actual}. Nothing was written.`,
+      "knowledge.asset_checksum_mismatch",
+      1
+    );
+  }
+  mkdirSync2(dirname3(outPath), { recursive: true });
+  try {
+    const existing = lstatSync(outPath, { throwIfNoEntry: false });
+    if (existing?.isSymbolicLink()) unlinkSync2(outPath);
+    writeFileSync(outPath, bytes);
+  } catch (err) {
+    throw new CliError(
+      `Could not write ${outPath}: ${err instanceof Error ? err.message : String(err)}`,
+      "knowledge.asset_write_failed",
+      1
+    );
+  }
+  emit({ path: outPath, filename: asset.filename, byte_size: bytes.byteLength, verified: true });
+  return 0;
+}
+function readAssetResult(content) {
+  const malformed = () => {
+    throw new CliError(
+      "knowledgeAssetGet returned an unexpected payload.",
+      "knowledge.asset_response_invalid",
+      1
+    );
+  };
+  if (typeof content !== "object" || content === null) return malformed();
+  const c = content;
+  if (typeof c["download_url"] !== "string" || c["download_url"] === "") return malformed();
+  if (typeof c["checksum_sha256"] !== "string" || c["checksum_sha256"] === "") return malformed();
+  return {
+    download_url: c["download_url"],
+    checksum_sha256: c["checksum_sha256"],
+    filename: typeof c["filename"] === "string" ? c["filename"] : "asset",
+    byte_size: typeof c["byte_size"] === "number" ? c["byte_size"] : 0
+  };
+}
+
 // packages/cli/src/cli/registry.ts
 var KNOWLEDGE_SCOPES = ["org", "integration", "app"];
+var KNOWLEDGE_ASSET_ROLES = [
+  "logo-primary",
+  "logo-mark",
+  "logo-wordmark",
+  "icon",
+  "favicon",
+  "illustration",
+  "diagram",
+  "other"
+];
 var FEEDBACK_CATEGORIES = ["bug", "friction", "suggestion", "other"];
 var limit = { field: "limit", type: "number", describe: "Page size." };
 var cursor = { field: "cursor", type: "string", describe: "Opaque page cursor." };
@@ -17045,6 +17184,36 @@ var MCP_COMMANDS = {
     },
     validate: validateKnowledgeGet
   },
+  "knowledge asset list": {
+    tool: "knowledgeAssetList",
+    summary: "List attached images \u2014 the org's real logo, icon, wordmark, favicon.",
+    flags: {
+      scope: {
+        field: "scope",
+        type: "enum",
+        enumValues: KNOWLEDGE_SCOPES,
+        describe: "org | integration | app."
+      },
+      integration: {
+        field: "integration",
+        type: "string",
+        describe: "Narrow to one integration."
+      },
+      app: appOptional,
+      entry: {
+        field: "entry_id",
+        type: "string",
+        format: "uuid",
+        describe: "Narrow to one entry."
+      },
+      role: {
+        field: "role",
+        type: "enum",
+        enumValues: KNOWLEDGE_ASSET_ROLES,
+        describe: "e.g. logo-primary for the main company logo."
+      }
+    }
+  },
   "knowledge search": {
     tool: "knowledgeSearch",
     summary: "Full-text search over knowledge entries.",
@@ -17269,6 +17438,10 @@ var AUTH_TIMEOUT_FLAG = {
   }
 };
 var LOCAL_FLAG_HELP = {
+  "knowledge asset get": {
+    summary: "Fetch one Knowledge asset and write it into the repo, verifying it against its checksum. Address it positionally as <scope>/<topic>/<slug>, or pass --id from `knowledge asset list`. Non-org scopes need their parent (--integration / --app).",
+    flags: KNOWLEDGE_ASSET_GET_FLAGS
+  },
   run: {
     summary: "Run a dev command with governed env injected \u2014 app mode with --app, else user mode. For a long-lived server, background it (`nohup greenlight run \u2026 > run.log 2>&1 &`) and poll the log for the `[greenlight] ready` line; stop it by signalling the greenlight process (the signal reaches the whole child tree).",
     flags: RUN_FLAGS
@@ -17313,6 +17486,10 @@ var LOCAL_COMMANDS = [
   ],
   ["preview --app <id> [--path <p>]", "Emit a single-use preview URL."],
   ["curl --app <id> --path <p>", "Make an authenticated request to a deployed app."],
+  [
+    "knowledge asset get <scope>/<topic>/<slug> --out <p>",
+    "Fetch a Knowledge asset (the org's real logo/icon) and write it into the repo, checksum-verified."
+  ],
   ["doctor", "Report config, auth state, and server reachability."],
   ["help [command]", "Show this help, or a command's flags."]
 ];
@@ -17391,10 +17568,10 @@ function cmdLogout(apiBase) {
 }
 
 // packages/cli/src/commands/pair.ts
-import { createHash as createHash2, randomBytes as randomBytes3 } from "node:crypto";
+import { createHash as createHash3, randomBytes as randomBytes3 } from "node:crypto";
 var POLL_INTERVAL_MS = 2e3;
 var DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1e3;
-var sha256 = (s) => createHash2("sha256").update(s, "utf8").digest("hex");
+var sha256 = (s) => createHash3("sha256").update(s, "utf8").digest("hex");
 function genPairingCode() {
   const alphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
   const pick2 = () => Array.from(randomBytes3(4), (b) => alphabet[b % alphabet.length]).join("");
@@ -17742,13 +17919,18 @@ function parseRunArgs(after) {
   }
   return { opts, dev: after.slice(i) };
 }
+var LOCAL_COMMAND_NAMES = /* @__PURE__ */ new Set(["repo clone", "repo refresh", "knowledge asset get"]);
 function resolveCommand(tokens) {
   const first = tokens[0] ?? "";
-  const second = tokens[1];
-  const twoWord = second !== void 0 && !second.startsWith("--") ? `${first} ${second}` : void 0;
-  const localTwoWord = twoWord === "repo clone" || twoWord === "repo refresh";
-  const command = twoWord && (MCP_COMMANDS[twoWord] || localTwoWord) ? twoWord : first;
-  return { command, rest: tokens.slice(command.split(" ").length) };
+  for (const width of [3, 2]) {
+    const words = tokens.slice(0, width);
+    if (words.length < width || words.some((w) => w.startsWith("-"))) continue;
+    const candidate = words.join(" ");
+    if (MCP_COMMANDS[candidate] || LOCAL_COMMAND_NAMES.has(candidate)) {
+      return { command: candidate, rest: tokens.slice(width) };
+    }
+  }
+  return { command: first, rest: tokens.slice(1) };
 }
 async function main(argv) {
   const cmdIdx = argv.findIndex((a) => !a.startsWith("-"));
@@ -17792,6 +17974,8 @@ async function main(argv) {
   if (command === "repo refresh") return cmdRepoRefresh(resolveApiBase(), rest, global);
   if (command === "preview") return cmdPreview(resolveApiBase(), rest, global);
   if (command === "curl") return cmdCurl(resolveApiBase(), rest, global);
+  if (command === "knowledge asset get")
+    return cmdKnowledgeAssetGet(resolveApiBase(), rest, global);
   const spec = MCP_COMMANDS[command];
   if (spec) return runMcpCommand(resolveApiBase(), spec, rest, global);
   note(helpText());
@@ -17814,9 +17998,13 @@ if (isMain) {
       return;
     }
     note(err instanceof Error ? err.stack ?? err.message : String(err));
+    renderCliError(
+      new CliError(err instanceof Error ? err.message : String(err), "cli.unexpected_error", 1)
+    );
     exitFlushed(1);
   });
 }
 export {
+  LOCAL_COMMAND_NAMES,
   main
 };

@@ -131,6 +131,37 @@ rules, call `getPolicies()` — it returns each check with its enforcement level
 such as the approved base-image list, so you can satisfy the gate before pushing rather than
 after it fails. A check reporting `inactive_reason` will not fire, so do not code around it.
 
+**Never invent the company's mark.** Wherever an app shows the **organization's** logo,
+wordmark, or favicon — a header, a login screen, a nav bar, a footer, a favicon — look up the real
+one and use it:
+
+```
+knowledgeAssetList({ scope: 'org' })                      # or filter: { role: 'logo-primary' }
+# Address the result with its own entry_topic and slug — do not guess a topic:
+knowledgeAssetGet({ scope: 'org', topic: <entry_topic>, slug: <slug> })
+```
+
+**If nothing is attached, leave the company mark out.** Do not draw one, do not substitute a
+lookalike, do not set the company name in a typeface and call it a wordmark. A plausible-looking
+logo that is not the company's is worse than no logo — it is a claim about the organization,
+shipped into a governed app, that nobody approved.
+
+**An app's own icon is different.** That is the app's identity, not the company's, so you may
+design one. If the org has an `icon`-role asset, copy it to `.greenlight/icon.svg` so the app gets
+a branded dashboard tile; if it has none, design an app icon rather than skipping it.
+
+Fetch the bytes and **commit the file into the repo** (`public/logo.svg`). The download URL
+expires — it is a fetch handle, never something the deployed app references. The CLI does fetch,
+checksum-verify, and write in one step:
+
+```
+greenlight knowledge asset get org/design-system/logo-primary --out public/logo.svg
+```
+
+When several assets share a role, prefer app-scope over org-scope, then the `theme` matching the
+surface you are building. Assets are read-only to you: IT uploads them in the dashboard, and
+`knowledgePropose` carries prose, never files.
+
 **Knowledge is a best-effort head start, not a precondition.** Check it — it often saves real work —
 but do not assume an entry exists for a given org, app, or integration, or that any entry it does
 have tells you how to call an upstream API. Many integrations will have no Knowledge at all. When
@@ -190,6 +221,7 @@ time out), or pass `--timeout <seconds>`; confirm completion with `greenlight wh
 | Verify a deployed response                                    | `curlApp`                                                                 | `curl --app <id> --path <p>`                       |
 | Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`            |
 | Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose`    |
+| Brand assets — the real logo/icon, never invented             | `knowledgeAssetList` / `knowledgeAssetGet`                                | `knowledge asset list` / `knowledge asset get`     |
 | Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                            |
 | Refresh an expired repo token on a checkout                   | `getRepoAccess` → `git remote set-url`                                    | `repo refresh --app <id> [--dir <d>]`              |
 | Run locally — app env with `--app`, else your own grants      | —                                                                         | `run [--app <id>] -- <cmd>` (after `pair`/`login`) |
