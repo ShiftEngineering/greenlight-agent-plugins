@@ -266,9 +266,9 @@ The standard new-app loop:
    The app sits idle, at zero cost, until the first merge. Returns `app_id` and a short-lived
    clone token.
 2. **Clone and write code — showing the user as you go.** Fill in the required `docs` block (the
-   pipeline blocks deploy without it), a `README.md`, and `.greenlight/icon.svg` — a dashboard icon
-   for the app, authored the same way: by you, unprompted, never something you ask the user to
-   request or approve (see _A default dashboard icon_ below for what makes a good one). Write your
+   pipeline blocks deploy without it), a `README.md` (see _A default README_ below), and
+   `.greenlight/icon.svg` — a dashboard icon for the app. Author the README and icon the same way:
+   by you, unprompted, never something you ask the user to request or approve. Write your
    `Dockerfile` and `src/`. As soon as there is anything to render, run the app locally and put it
    in front of the user — see _Show your work_. Until the first merge the app's own grants and
    resources don't exist, so run it in **user mode** on your own requested access (see _Local
@@ -303,6 +303,39 @@ _Sync with `main` before editing_), edit `greenlight.yml` and/or code, show the 
 locally, PR, merge, verify. **Every change ends with verification** — there is no "done" you
 report without having watched the requested behavior work.
 
+**A default README.** Every new app ships with a root `README.md` — you author it in step 2 above,
+without being asked. The pipeline requires the file to be present; the structure below is what
+makes it useful to the next human or agent who opens the repo. Do not ask whether a README is
+wanted; the only override is the user proactively saying they don't want one. Use this shape:
+
+```
+# App Name
+One-paragraph description of what this app does.
+
+## Quick Start
+1. Clone the repo
+2. Install dependencies: `npm install` (or the stack equivalent)
+3. Set up environment: `greenlight run` supplies real values for granted credentials; for
+   user-delegated sources write your own `.env` fixtures
+4. Run the dev server: `greenlight run -- npm run dev` (or plain `npm run dev` with fixtures)
+
+## Commands
+| Command         | Description              |
+| --------------- | ------------------------ |
+| `npm run dev`   | Start development server |
+| `npm test`      | Run tests                |
+| `npm run build` | Production build         |
+| `npm run lint`  | Run linter               |
+
+## Architecture
+Brief overview of the project structure and key design decisions.
+
+## Contributing
+How to contribute, coding standards, PR process.
+```
+
+Adapt package-manager commands to the stack you chose; keep the section headings.
+
 **A default dashboard icon.** Every new app ships with `.greenlight/icon.svg` — you author it in
 step 2 above, the same way you author `README.md`, without being asked. Make it simple, distinct,
 tasteful, and reflective of what the app does; legible at dashboard-tile size matters more than
@@ -322,6 +355,7 @@ two most-skipped steps (showing the user before shipping, and verifying after de
 Ship progress:
 - [ ] Checkout synced with main before editing (Sync with main before editing)
 - [ ] Change built and running locally (greenlight run)
+- [ ] README.md authored (new app)
 - [ ] .greenlight/icon.svg authored (new app)
 - [ ] User has seen it working in the preview (Show your work)
 - [ ] Env names declared + values set (no MISSING_ENV_VALUE at merge)
@@ -681,7 +715,7 @@ and route. The contract (some items pipeline-enforced, others recommended):
 
   Any value within the cap always deploys; a value above it is rejected at PR time
   (`POLICY_VIOLATION`, `workload-compute-limit`), never at runtime. Full reference:
-  [docs/34 § compute](https://github.com/ShiftEngineering/greenlight/blob/main/docs/34-workloads.md).
+  [greenlight.yml — workloads / compute](https://greenlightbyshift.com/docs/reference/greenlight-yml/).
 
 - **Runtime security posture:** the namespace enforces Pod Security Admission `baseline` with
   `restricted` warnings/audits. Pods run with user namespaces (`hostUsers: false`),
