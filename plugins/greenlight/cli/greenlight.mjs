@@ -16910,11 +16910,6 @@ var userEmailRequired = {
   required: true,
   describe: "Target user's email."
 };
-var slugOptional = {
-  field: "slug",
-  type: "string",
-  describe: "App slug (alternative to --app)."
-};
 var skillShowSpec = {
   tool: "getBuilderSkill",
   summary: "Print the universal Greenlight Builder Skill markdown (core, or a focused skill by name).",
@@ -16975,20 +16970,6 @@ var MCP_COMMANDS = {
         describe: "Case-insensitive substring match on app name."
       }
     }
-  },
-  "apps request-access": {
-    tool: "requestAppAccess",
-    summary: "Request your own access to an app found via `apps discover`.",
-    flags: {
-      app: appOptional,
-      slug: slugOptional,
-      reason: {
-        field: "reason",
-        type: "string",
-        describe: "Why you need it \u2014 shown to the owner."
-      }
-    },
-    validate: validateAppIdentifier
   },
   "integrations list": {
     tool: "listGrantableIntegrations",
@@ -17399,13 +17380,6 @@ function validateKnowledgeGet(input) {
     );
   }
   validateKnowledgeParent(input);
-}
-function validateAppIdentifier(input) {
-  const hasAppId = stringField(input, "app_id") !== void 0;
-  const hasSlug = stringField(input, "slug") !== void 0;
-  if (!hasAppId && !hasSlug) {
-    throw invalid2("Provide --app or --slug to identify the app.", "app_id");
-  }
 }
 function validateKnowledgeParent(input) {
   const scope = stringField(input, "scope");
