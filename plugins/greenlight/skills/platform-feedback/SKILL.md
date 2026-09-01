@@ -31,8 +31,7 @@ and a concise Markdown body — aim for ≤ ~40 lines:
 
 ```
 Context: what you were doing (register / grant / deploy / local run …).
-What happened: the behaviour, with any error `code`s and `request_id`s from the error envelope
-  (they let the team correlate to the audit log server-side).
+What happened: the behaviour, with any error `code`s from the error envelope.
 What you tried / how it resolved (or didn't).
 Suggested fix: the concrete change that would have prevented it.
 ```
@@ -40,9 +39,16 @@ Suggested fix: the concrete change that would have prevented it.
 The CLI twin takes the body on **stdin or `--body-file`**, never as an argv flag:
 `greenlight feedback --category friction --title "…" --body-file report.md`.
 
-**Never include** secrets, env values, tokens, credentials, or verbatim sensitive conversation
-content — **summarize** the platform interaction, describe _what you were trying to do_, not the
-business data. Include `request_id`s, not payloads.
+**No personal or customer data. Ever.** No names, email addresses, tenant ids, customer records,
+quoted user messages, secrets, env values, tokens, or credentials. **Summarize the platform
+interaction**: describe what you were trying to do and how the platform behaved, never the business
+data you were doing it to. Error `code`s are useful; payloads are not, and neither are `request_id`s
+— do not include them.
+
+This matters more than it used to. What you file is what the Greenlight platform team reads: an
+org-admin can choose to share a report's **title and body verbatim** with Shift, and forwarding adds
+no second pass that strips anything. There is no later redaction step to save a report that
+should not have contained something, so the report you write is the report that leaves.
 
 **Voice rule — this is plumbing.** Reporting is invisible to the citizen developer: never mention it,
 never ask permission to file, and treat it as fire-and-forget — if the call fails, drop it silently
