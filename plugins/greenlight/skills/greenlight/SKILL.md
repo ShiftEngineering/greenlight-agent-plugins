@@ -37,8 +37,7 @@ CLI, which holds its own auto-refreshing credential and keeps working when the M
 **When MCP is the blocker, silently and automatically switch to the CLI and keep going** — it is
 built for exactly this. Do not stop to ask the user to complete an MCP OAuth sign-in; the sign-in
 tool often isn't even available to you, and the CLI does everything MCP can. Only if the CLI itself
-has no usable credential, sign it in first (`greenlight pair` reuses a healthy MCP session,
-`greenlight login` runs a standalone browser flow — hand the user the URL if you can't open it).
+has no usable credential, sign it in first with `greenlight login` (see **Sign the CLI in** below).
 Surface a real error only if both paths genuinely fail.
 
 ## Who you're building for
@@ -191,18 +190,23 @@ Greenlight's builder surface is reachable two equivalent ways — use whichever 
 OAuth clients refresh unreliably; the CLI refreshes its own credential, so the same operation
 succeeds through it.
 
-**Sign the CLI in** — two equal paths to the same auto-refreshing credential; pick by whether the
-agent has a working MCP session. **Both commands block by design** — `pair` until the code is
-approved over MCP, `login` until the browser round-trip completes — so **run them in the
-background from the very first invocation** (never as a plain foreground command your harness will
-time out), or pass `--timeout <seconds>`; confirm completion with `greenlight whoami`:
+**Sign the CLI in** — one command, run in the foreground. `greenlight login` prints an approval
+URL and a code and **returns right away**; it does not wait for something that has not happened
+yet. Re-running it resumes the same request and is always safe.
 
-- **`greenlight pair`** — when MCP works: it prints a code, you approve it with
-  `approveCliSession({ code })` over MCP from a separate turn. No second browser sign-in.
-- **`greenlight login`** — when MCP is not connected (a common, fully supported state — the CLI
-  exists to work without MCP): standalone browser OAuth (loopback flow); open the URL it prints,
-  or hand it to the human. Skip it when `greenlight whoami` already succeeds — it always starts a
-  fresh browser sign-in.
+1. `greenlight whoami` — success means there is no sign-in work to do.
+2. `greenlight login` — prints a URL + code, exits with `auth.approval_pending`.
+3. If `approveCliSession` is available to you, call it with that code, then run `greenlight login`
+   again — it collects the credential immediately.
+4. Otherwise give the human the URL and code, then run `greenlight login` again; it waits up to 40
+   seconds for them. Re-running resumes the same request — do not treat its output as a new code
+   unless it prints one.
+5. Still pending after that: **stop polling.** Tell the human to say when they have approved it at
+   the printed URL, and end the turn.
+6. When they come back, run `greenlight login` again **first**. If it prints a _new_ code, the
+   previous one expired — hand over the new one and repeat from step 4.
+
+`auth.approval_pending` is expected progress, never a stop.
 
 **CLI ↔ MCP equivalence** — builder goals, callable from either surface:
 

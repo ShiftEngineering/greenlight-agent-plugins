@@ -6898,16 +6898,8 @@ var CliError = class extends Error {
   /** Optional `details` for the error envelope (e.g. the offending field). */
   details;
 };
-var notSignedInError = () => new CliError(
-  "Not signed in. Run `greenlight login` (or `greenlight pair`).",
-  "auth.not_signed_in",
-  3
-);
-var sessionExpiredError = () => new CliError(
-  "Session expired or revoked. Run `greenlight login` (or `greenlight pair`).",
-  "auth.session_expired",
-  3
-);
+var notSignedInError = () => new CliError("Not signed in. Run `greenlight login`.", "auth.not_signed_in", 3);
+var sessionExpiredError = () => new CliError("Session expired or revoked. Run `greenlight login`.", "auth.session_expired", 3);
 var forbiddenError = (message2) => new CliError(message2, "auth.forbidden", 3);
 
 // packages/cli/src/cli/args.ts
@@ -15784,8 +15776,8 @@ function removeKeychainEntry(account) {
 }
 function readFileEntry(path, apiBase) {
   try {
-    const store2 = JSON.parse(readFileSync(path, "utf8"));
-    return store2[apiBase];
+    const store3 = JSON.parse(readFileSync(path, "utf8"));
+    return store3[apiBase];
   } catch {
     return void 0;
   }
@@ -15793,18 +15785,18 @@ function readFileEntry(path, apiBase) {
 function writeFileEntry(path, apiBase, value) {
   mkdirSync(dirname(path), { recursive: true, mode: 448 });
   withFileLock(`${path}.lock`, () => {
-    const store2 = readStore(path);
-    store2[apiBase] = value;
-    atomicWrite(path, JSON.stringify(store2));
+    const store3 = readStore(path);
+    store3[apiBase] = value;
+    atomicWrite(path, JSON.stringify(store3));
   });
 }
 function removeFileEntry(path, apiBase) {
   if (!existsSync(path)) return;
   withFileLock(`${path}.lock`, () => {
-    const store2 = readStore(path);
-    if (apiBase in store2) {
-      delete store2[apiBase];
-      atomicWrite(path, JSON.stringify(store2));
+    const store3 = readStore(path);
+    if (apiBase in store3) {
+      delete store3[apiBase];
+      atomicWrite(path, JSON.stringify(store3));
     }
   });
 }
@@ -15826,17 +15818,17 @@ function atomicWrite(path, data) {
   }
   renameSync(tmp, path);
 }
-function withFileLock(lockPath, fn) {
+function withFileLock(lockPath2, fn) {
   const start = Date.now();
   for (; ; ) {
     try {
-      closeSync(openSync(lockPath, "wx"));
+      closeSync(openSync(lockPath2, "wx"));
       break;
     } catch (err) {
       if (err.code !== "EEXIST") throw err;
       if (Date.now() - start > LOCK_TIMEOUT_MS) {
         try {
-          unlinkSync(lockPath);
+          unlinkSync(lockPath2);
         } catch {
         }
       } else {
@@ -15848,7 +15840,7 @@ function withFileLock(lockPath, fn) {
     return fn();
   } finally {
     try {
-      unlinkSync(lockPath);
+      unlinkSync(lockPath2);
     } catch {
     }
   }
@@ -17404,11 +17396,21 @@ function flagsWithPayloadFile(spec) {
 
 // packages/cli/src/cli/help.ts
 var PAD = 38;
-var AUTH_TIMEOUT_FLAG = {
+var LOGIN_FLAGS = {
+  wait: {
+    field: "wait",
+    type: "boolean",
+    describe: "Keep checking until the approval window closes, instead of returning quickly."
+  },
   timeout: {
     field: "timeout",
     type: "number",
-    describe: "Give up after this many seconds instead of the default wait."
+    describe: "Seconds to keep checking. Implies --wait."
+  },
+  loopback: {
+    field: "loopback",
+    type: "boolean",
+    describe: "Use the browser OAuth flow on this machine instead of a code. One command, but it needs a browser here."
   }
 };
 var LOCAL_FLAG_HELP = {
@@ -17421,12 +17423,8 @@ var LOCAL_FLAG_HELP = {
     flags: RUN_FLAGS
   },
   login: {
-    summary: "Sign in via the standalone OAuth browser flow. Blocks until the browser round-trip completes \u2014 background it or pass --timeout.",
-    flags: AUTH_TIMEOUT_FLAG
-  },
-  pair: {
-    summary: "Sign in by approving a code over your agent's MCP session. Blocks until the code is approved out of band \u2014 background it or pass --timeout.",
-    flags: AUTH_TIMEOUT_FLAG
+    summary: "Sign in. Prints an approval URL and a code, then returns right away. Approve the code \u2014 call approveCliSession({ code }) if the Greenlight MCP tools are connected, or have a person enter it at the printed URL \u2014 then run `greenlight login` again to collect the credential. Re-running resumes the same request and is always safe. --loopback keeps the browser OAuth flow for a human signing in on this machine.",
+    flags: LOGIN_FLAGS
   },
   preview: { summary: "Emit a single-use preview URL for the app.", flags: PREVIEW_FLAGS },
   curl: {
@@ -17443,8 +17441,7 @@ var LOCAL_FLAG_HELP = {
   }
 };
 var AUTH_COMMANDS = [
-  ["login [--timeout <s>]", "Sign in via the standalone OAuth browser flow (blocks until done)."],
-  ["pair [--timeout <s>]", "Sign in by approving a code over MCP (blocks until approved)."],
+  ["login [--wait] [--timeout <s>] [--loopback]", "Sign in. Returns quickly; safe to re-run."],
   ["whoami", "Show the signed-in identity."],
   ["logout", "Remove the stored CLI credentials."]
 ];
@@ -17535,71 +17532,431 @@ async function reachable(apiBase) {
   }
 }
 
+// packages/cli/src/auth-pending.ts
+var store2 = createSecretStore({ accountPrefix: "pending", fallbackFile: "cli-pending.json" });
+function loadPending(apiBase) {
+  const raw = store2.read(apiBase);
+  if (!raw) return void 0;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.sessionId === "string" && typeof parsed.code === "string" && typeof parsed.approvalUrl === "string" && typeof parsed.expiresAt === "number") {
+      return {
+        sessionId: parsed.sessionId,
+        code: parsed.code,
+        approvalUrl: parsed.approvalUrl,
+        expiresAt: parsed.expiresAt,
+        intervalSeconds: parsed.intervalSeconds ?? 2
+      };
+    }
+  } catch {
+  }
+  return void 0;
+}
+function savePending(apiBase, pending) {
+  store2.write(apiBase, JSON.stringify(pending));
+}
+function clearPending(apiBase) {
+  store2.remove(apiBase);
+}
+
+// packages/cli/src/auth-lock.ts
+import { createHash as createHash3 } from "node:crypto";
+import {
+  closeSync as closeSync2,
+  fsyncSync as fsyncSync2,
+  mkdirSync as mkdirSync3,
+  openSync as openSync2,
+  readFileSync as readFileSync5,
+  statSync,
+  unlinkSync as unlinkSync3,
+  writeSync as writeSync2
+} from "node:fs";
+import { homedir as homedir2, hostname as hostname2 } from "node:os";
+import { join as join3 } from "node:path";
+var ACQUIRE_TIMEOUT_MS = 5e3;
+var RETRY_MS = 25;
+var lockPath = (apiBase) => join3(
+  homedir2(),
+  ".greenlight",
+  `auth-${createHash3("sha256").update(apiBase, "utf8").digest("hex").slice(0, 16)}.lock`
+);
+function holderIsGone(holder) {
+  if (holder.host !== hostname2()) return false;
+  try {
+    process.kill(holder.pid, 0);
+    return false;
+  } catch (err) {
+    return err.code === "ESRCH";
+  }
+}
+function readHolder(path) {
+  try {
+    const parsed = JSON.parse(readFileSync5(path, "utf8"));
+    if (typeof parsed.pid === "number" && typeof parsed.host === "string") {
+      return { pid: parsed.pid, host: parsed.host, at: parsed.at ?? 0 };
+    }
+  } catch {
+  }
+  return void 0;
+}
+function withAuthLock(apiBase, fn, onDiagnostic) {
+  const path = lockPath(apiBase);
+  mkdirSync3(join3(homedir2(), ".greenlight"), { recursive: true, mode: 448 });
+  const start = Date.now();
+  for (; ; ) {
+    try {
+      const fd = openSync2(path, "wx", 384);
+      try {
+        const holder = { pid: process.pid, host: hostname2(), at: Date.now() };
+        writeSync2(fd, JSON.stringify(holder));
+        fsyncSync2(fd);
+      } finally {
+        closeSync2(fd);
+      }
+      break;
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      const holder = readHolder(path);
+      if (holder !== void 0 && holderIsGone(holder)) {
+        onDiagnostic?.(
+          `[greenlight] Reclaiming an auth lock left by process ${holder.pid}, which is no longer running.`
+        );
+        reclaim(path);
+        continue;
+      }
+      if (holder === void 0 && fileOlderThan(path, ACQUIRE_TIMEOUT_MS)) {
+        onDiagnostic?.("[greenlight] Reclaiming an auth lock left with no owner recorded.");
+        reclaim(path);
+        continue;
+      }
+      if (Date.now() - start > ACQUIRE_TIMEOUT_MS) {
+        throw new CliError(
+          holder !== void 0 ? `Another greenlight process (pid ${holder.pid}) is holding the sign-in lock. Wait for it to finish, then retry.` : "The sign-in lock is held by another greenlight process. Wait for it to finish, then retry.",
+          "auth.lock_unavailable",
+          3
+        );
+      }
+      sleepSync(RETRY_MS);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      unlinkSync3(path);
+    } catch {
+    }
+  }
+}
+function fileOlderThan(path, ms) {
+  try {
+    return Date.now() - statSync(path).mtimeMs > ms;
+  } catch {
+    return false;
+  }
+}
+function reclaim(path) {
+  try {
+    unlinkSync3(path);
+  } catch {
+  }
+}
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 // packages/cli/src/commands/logout.ts
 function cmdLogout(apiBase) {
-  clearOAuthRecord(apiBase);
+  withAuthLock(
+    apiBase,
+    () => {
+      clearOAuthRecord(apiBase);
+      clearPending(apiBase);
+    },
+    note
+  );
   note("Logged out \u2014 the CLI credential was removed from this machine.");
 }
 
-// packages/cli/src/commands/pair.ts
-import { createHash as createHash3, randomBytes as randomBytes3 } from "node:crypto";
-var POLL_INTERVAL_MS = 2e3;
-var DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1e3;
-var sha256 = (s) => createHash3("sha256").update(s, "utf8").digest("hex");
-function genPairingCode() {
-  const alphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
-  const pick2 = () => Array.from(randomBytes3(4), (b) => alphabet[b % alphabet.length]).join("");
-  return `GL-${pick2()}-${pick2()}`;
+// packages/cli/src/commands/sign-in.ts
+import { createHash as createHash4, randomBytes as randomBytes3 } from "node:crypto";
+var RESUME_POLL_MS = 4e4;
+var FULL_WAIT_MS = 10 * 60 * 1e3;
+var HEARTBEAT_MS = 1e4;
+var sha256 = (s) => createHash4("sha256").update(s, "utf8").digest("hex");
+var CODE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
+var CODE_LENGTH = 6;
+function pickSymbol() {
+  const limit2 = 256 - 256 % CODE_ALPHABET.length;
+  for (; ; ) {
+    const [byte] = randomBytes3(1);
+    if (byte === void 0 || byte >= limit2) continue;
+    const symbol = CODE_ALPHABET[byte % CODE_ALPHABET.length];
+    if (symbol !== void 0) return symbol;
+  }
 }
-async function cmdPair(apiBase, opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
+function genPairingCode() {
+  return Array.from({ length: CODE_LENGTH }, pickSymbol).join("");
+}
+function hasCredential(apiBase) {
+  return Boolean(loadOAuthRecord(apiBase).tokens?.access_token);
+}
+function clearThisHandshake(apiBase, pending) {
+  withAuthLock(
+    apiBase,
+    () => {
+      if (loadPending(apiBase)?.sessionId === pending.sessionId) clearPending(apiBase);
+    },
+    note
+  );
+}
+async function storedCredential(apiBase) {
+  const judged = loadOAuthRecord(apiBase).tokens?.access_token;
+  if (judged === void 0) return "none";
+  try {
+    await getAccessToken(apiBase);
+    return "usable";
+  } catch (err) {
+    if (!(err instanceof CliError) || err.code !== "auth.session_expired") return "unreachable";
+    return withAuthLock(
+      apiBase,
+      () => {
+        const current = loadOAuthRecord(apiBase).tokens?.access_token;
+        if (current !== void 0 && current !== judged) return "usable";
+        clearOAuthRecord(apiBase);
+        clearPending(apiBase);
+        return "dead";
+      },
+      note
+    );
+  }
+}
+function approvalPendingError(pending) {
+  const err = new CliError(
+    `Waiting for approval of code ${pending.code}.`,
+    "auth.approval_pending",
+    4
+  );
+  err.details = {
+    code: pending.code,
+    approval_url: pending.approvalUrl,
+    next_steps: [
+      `If the Greenlight MCP tools are connected, call approveCliSession({ code: "${pending.code}" }).`,
+      "If not, open:",
+      pending.approvalUrl,
+      `Type: ${pending.code}`,
+      "Then run `greenlight login` again in the foreground."
+    ].join("\n")
+  };
+  return err;
+}
+async function cmdSignIn(apiBase, opts = {}) {
+  const credential = await storedCredential(apiBase);
+  if (credential === "usable") {
+    withAuthLock(apiBase, () => clearPending(apiBase), note);
+    note("Already signed in. Run `greenlight whoami` to confirm, or `greenlight logout` first.");
+    return;
+  }
+  if (credential === "unreachable") {
+    throw new CliError(
+      "Could not reach Greenlight to check the stored session. Check your connection and run `greenlight login` again."
+    );
+  }
+  if (credential === "dead") {
+    note("The stored session has expired or been revoked. Starting a new sign-in.");
+  }
+  const budgetMs = opts.timeoutMs !== void 0 ? opts.timeoutMs : opts.wait === true ? FULL_WAIT_MS : void 0;
+  const existing = withAuthLock(
+    apiBase,
+    () => {
+      const pending = loadPending(apiBase);
+      if (pending !== void 0 && pending.expiresAt <= Date.now()) {
+        clearPending(apiBase);
+        return void 0;
+      }
+      return pending;
+    },
+    note
+  );
+  if (existing === void 0) {
+    await create(apiBase);
+    return;
+  }
+  await resume(apiBase, existing, budgetMs ?? RESUME_POLL_MS);
+}
+async function create(apiBase) {
   const code = genPairingCode();
   const created = await jsonRequest("POST", `${apiBase}/api/cli/sessions`, {
-    body: { pairing_code_hash: sha256(code) }
+    body: { pairing_code_hash: sha256(code), cli_version: cliVersion() }
   });
   if (created.status !== 201) {
-    throw new CliError(`Could not start pairing (HTTP ${created.status}).`);
+    throw new CliError(`Could not start sign-in (HTTP ${created.status}).`);
   }
-  const sessionId = asRecord(created.body)["session_id"];
-  if (typeof sessionId !== "string") {
-    throw new CliError("Pairing response is malformed (missing session_id).");
+  const body = asRecord(created.body);
+  const sessionId = readString(created.body, "session_id");
+  if (sessionId === void 0) {
+    throw new CliError("Sign-in response is malformed (missing session_id).");
   }
-  note(
-    `
-Pairing code: ${code}
-
-Approve it from your agent (it is already signed in to Greenlight):
-  approveCliSession({ code: "${code}" })
-
-[greenlight] Waiting for approval (up to ${Math.round(timeoutMs / 1e3)}s) \u2014 this command blocks until the code is approved out of band. Run it in the background (or pass --timeout <seconds>); confirm with \`greenlight whoami\`.`
+  const expiresIn = typeof body["expires_in"] === "number" ? body["expires_in"] : 600;
+  const pending = {
+    sessionId,
+    code,
+    approvalUrl: `${apiBase.replace(/\/+$/, "")}/cli/approve`,
+    expiresAt: Date.now() + expiresIn * 1e3,
+    intervalSeconds: typeof body["interval"] === "number" ? body["interval"] : 2
+  };
+  const settled = withAuthLock(
+    apiBase,
+    () => {
+      if (hasCredential(apiBase)) return "already-signed-in";
+      const peer = loadPending(apiBase);
+      if (peer !== void 0 && peer.expiresAt > Date.now()) {
+        return { pending: peer, adopted: true };
+      }
+      savePending(apiBase, pending);
+      return { pending, adopted: false };
+    },
+    note
   );
-  const deadline = Date.now() + timeoutMs;
-  const timedOut = () => Date.now() > deadline;
+  if (settled === "already-signed-in") {
+    note("Already signed in \u2014 another `greenlight login` completed the sign-in.");
+    return;
+  }
+  const live = settled.pending;
+  note(`
+Approve this sign-in at:
+${live.approvalUrl}
+Code: ${live.code}
+`);
+  throw approvalPendingError(live);
+}
+async function resume(apiBase, pending, budgetMs) {
+  const deadline = Math.min(Date.now() + budgetMs, pending.expiresAt);
+  let intervalMs = pending.intervalSeconds * 1e3;
   let deliveryMissed = false;
+  note(
+    `[greenlight] Checking whether code ${pending.code} has been approved (up to ${Math.max(1, Math.round((deadline - Date.now()) / 1e3))}s).`
+  );
+  let lastHeartbeat = Date.now();
+  const heartbeat = () => {
+    if (Date.now() - lastHeartbeat < HEARTBEAT_MS) return;
+    lastHeartbeat = Date.now();
+    note(
+      `[greenlight] Still waiting for approval of ${pending.code} (${Math.max(0, Math.round((deadline - Date.now()) / 1e3))}s left).`
+    );
+  };
   for (; ; ) {
-    const beforeSleep = deadline - Date.now();
-    if (beforeSleep <= 0) throw timeoutError(deliveryMissed);
-    await sleep(Math.min(POLL_INTERVAL_MS, beforeSleep));
-    const budget = deadline - Date.now();
-    if (budget <= 0) throw timeoutError(deliveryMissed);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     let polled;
     try {
-      polled = await jsonRequest("GET", `${apiBase}/api/cli/sessions/${sessionId}`, {
-        timeoutMs: budget
+      polled = await jsonRequest("GET", `${apiBase}/api/cli/sessions/${pending.sessionId}`, {
+        timeoutMs: remaining
       });
     } catch {
-      if (timedOut()) throw timeoutError(deliveryMissed);
+      heartbeat();
+      await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
       continue;
     }
     if (polled.status === 429) {
-      if (timedOut()) throw timeoutError(deliveryMissed);
+      intervalMs = Math.max(intervalMs, raisedInterval(polled) * 1e3);
+      const peerWon = withAuthLock(
+        apiBase,
+        () => {
+          const stored = loadPending(apiBase);
+          if (stored?.sessionId !== pending.sessionId) return hasCredential(apiBase);
+          savePending(apiBase, { ...stored, intervalSeconds: intervalMs / 1e3 });
+          return false;
+        },
+        note
+      );
+      if (peerWon) {
+        note("Already signed in \u2014 another `greenlight login` completed this handshake.");
+        return;
+      }
+      heartbeat();
+      await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
       continue;
     }
     const body = asRecord(polled.body);
-    const status = body["status"];
+    const signal = readString(polled.body, "error") ?? readString(polled.body, "status");
     const accessToken = readString(polled.body, "access_token");
     const clientId = readString(polled.body, "client_id");
-    if (status === "active" && accessToken && clientId) {
+    if (accessToken !== void 0 && clientId !== void 0) {
+      commitCredential(apiBase, polled, accessToken, clientId);
+      note(`Signed in. The CLI credential is stored in ${credentialStoreLabel()}.`);
+      return;
+    }
+    if (polled.status === 404) {
+      clearThisHandshake(apiBase, pending);
+      throw new CliError(
+        "That sign-in request no longer exists on the server. Run `greenlight login` again for a fresh code.",
+        "auth.pairing_expired",
+        3
+      );
+    }
+    if (signal === "expired_token" || signal === "access_denied" || signal === "expired" || signal === "revoked") {
+      clearThisHandshake(apiBase, pending);
+      throw new CliError(
+        "That sign-in request is no longer valid. Run `greenlight login` again for a fresh code.",
+        "auth.pairing_expired",
+        3
+      );
+    }
+    if (signal === "active" || body["status"] === "active") {
+      deliveryMissed = true;
+      const peerWon = withAuthLock(
+        apiBase,
+        () => {
+          if (!hasCredential(apiBase)) return false;
+          clearPending(apiBase);
+          return true;
+        },
+        note
+      );
+      if (peerWon) {
+        note("Already signed in \u2014 another `greenlight login` completed this handshake.");
+        return;
+      }
+    }
+    heartbeat();
+    await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+  }
+  if (deliveryMissed) {
+    const settled = withAuthLock(
+      apiBase,
+      () => {
+        const won = hasCredential(apiBase);
+        clearPending(apiBase);
+        return won ? "committed" : "lost";
+      },
+      note
+    );
+    if (settled === "committed") {
+      note("Already signed in \u2014 another `greenlight login` completed this handshake.");
+      return;
+    }
+    throw new CliError(
+      "That sign-in was approved but its one-time credential did not arrive. Run `greenlight login` again for a fresh code.",
+      "auth.pairing_timed_out",
+      3
+    );
+  }
+  if (Date.now() >= pending.expiresAt) {
+    clearThisHandshake(apiBase, pending);
+    throw new CliError(
+      "That sign-in request expired before it was approved. Run `greenlight login` again for a fresh code.",
+      "auth.pairing_expired",
+      3
+    );
+  }
+  throw approvalPendingError(pending);
+}
+function commitCredential(apiBase, polled, accessToken, clientId) {
+  const body = asRecord(polled.body);
+  withAuthLock(
+    apiBase,
+    () => {
       saveOAuthRecord(apiBase, {
         client: { client_id: clientId },
         tokens: {
@@ -17611,26 +17968,18 @@ Approve it from your agent (it is already signed in to Greenlight):
         },
         tokensSavedAt: Date.now()
       });
-      note(`Paired. The CLI credential is stored in ${credentialStoreLabel()}.`);
-      return;
-    }
-    if (status === "active") deliveryMissed = true;
-    if (status === "expired" || status === "revoked") {
-      throw new CliError(
-        "Pairing was not approved in time. Run `greenlight pair` again.",
-        "auth.pairing_expired",
-        3
-      );
-    }
-    if (timedOut()) throw timeoutError(deliveryMissed);
-  }
-}
-function timeoutError(deliveryMissed) {
-  return new CliError(
-    deliveryMissed ? "Pairing was approved but the one-time credential was not received. Run `greenlight pair` again." : "Timed out waiting for approval. Run `greenlight pair` again.",
-    "auth.pairing_timed_out",
-    3
+      clearPending(apiBase);
+    },
+    note
   );
+}
+function raisedInterval(polled) {
+  const details = asRecord(asRecord(polled.body)["details"]);
+  const interval = details["interval"];
+  return typeof interval === "number" && interval > 0 ? interval : 5;
+}
+function cliVersion() {
+  return process.env["GREENLIGHT_CLI_VERSION"] ?? "dev";
 }
 
 // packages/cli/src/commands/whoami.ts
@@ -17670,8 +18019,11 @@ import { randomBytes as randomBytes4 } from "node:crypto";
 import { createServer } from "node:http";
 import { URL as URL3 } from "node:url";
 var DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1e3;
-var HEARTBEAT_MS = 30 * 1e3;
+var HEARTBEAT_MS2 = 30 * 1e3;
 var CALLBACK_PATH = "/callback";
+function dropPendingHandshake(apiBase) {
+  withAuthLock(apiBase, () => clearPending(apiBase), note);
+}
 async function cmdLogin(apiBase, deps = {}, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
   const deadlineAt = Date.now() + timeoutMs;
@@ -17709,7 +18061,7 @@ ${url2.toString()}
   };
   const heartbeat = setInterval(
     () => note("[greenlight] Still waiting for the browser sign-in\u2026"),
-    HEARTBEAT_MS
+    HEARTBEAT_MS2
   );
   if (typeof heartbeat.unref === "function") heartbeat.unref();
   try {
@@ -17719,6 +18071,7 @@ ${url2.toString()}
     ]);
     if (started === "AUTHORIZED") {
       provider.commitStaged();
+      dropPendingHandshake(apiBase);
       note("Already signed in to Greenlight.");
       return;
     }
@@ -17735,6 +18088,7 @@ ${url2.toString()}
     ]);
     if (finished !== "AUTHORIZED") throw new CliError("OAuth authorization did not complete.");
     provider.commitStaged();
+    dropPendingHandshake(apiBase);
     note(`Signed in to Greenlight. The CLI credential is stored in ${credentialStoreLabel()}.`);
   } catch (err) {
     if (!(err instanceof CliError) && Date.now() >= deadlineAt) throw loginTimedOut();
@@ -17825,27 +18179,49 @@ function defaultOpenBrowser(url2) {
 }
 
 // packages/cli/src/index.ts
-var SINGLE_WORD_AUTH = /* @__PURE__ */ new Set(["login", "pair", "whoami", "logout"]);
-function parseTimeoutMs(rest, command) {
-  const idx = rest.indexOf("--timeout");
-  const leftover = rest.filter((_, i) => i !== idx && (idx === -1 || i !== idx + 1));
-  if (leftover.length > 0) {
+var SINGLE_WORD_AUTH = /* @__PURE__ */ new Set(["login", "whoami", "logout"]);
+var pairRemovedError = () => new CliError(
+  "`greenlight pair` has been removed. Run `greenlight login` instead \u2014 it prints a code and returns right away.",
+  "validation.unknown_command",
+  2
+);
+function parseLoginArgs(rest) {
+  const out = { loopback: false, wait: false, timeoutMs: void 0 };
+  let waitRequested = false;
+  for (let i = 0; i < rest.length; i += 1) {
+    const arg = rest[i];
+    if (arg === "--wait") {
+      out.wait = true;
+      waitRequested = true;
+    } else if (arg === "--loopback") out.loopback = true;
+    else if (arg === "--timeout") {
+      const seconds = Number(rest[i + 1]);
+      if (!Number.isFinite(seconds) || seconds <= 0) {
+        throw new CliError(
+          "--timeout expects a positive number of seconds.",
+          "validation.body_invalid",
+          2
+        );
+      }
+      out.timeoutMs = seconds * 1e3;
+      out.wait = true;
+      i += 1;
+    } else {
+      throw new CliError(
+        `Unknown login argument: ${arg}. Accepted: --wait, --timeout <seconds>, --loopback.`,
+        "validation.unknown_flag",
+        2
+      );
+    }
+  }
+  if (out.loopback && waitRequested) {
     throw new CliError(
-      `Unknown ${command} argument: ${leftover[0]}. Only --timeout <seconds> is accepted.`,
+      "--wait does not apply to --loopback, which waits for a browser round-trip rather than a code approval. Use --loopback --timeout <seconds> to bound it.",
       "validation.unknown_flag",
       2
     );
   }
-  if (idx === -1) return void 0;
-  const seconds = Number(rest[idx + 1]);
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    throw new CliError(
-      "--timeout expects a positive number of seconds.",
-      "validation.body_invalid",
-      2
-    );
-  }
-  return seconds * 1e3;
+  return out;
 }
 function parseRunArgs(after) {
   const opts = { env: {} };
@@ -17928,6 +18304,7 @@ async function main(argv) {
     return 0;
   }
   const { command, rest } = resolveCommand(first === "help" ? args.slice(1) : args);
+  if (command === "pair") throw pairRemovedError();
   if (first === "help" || rest.includes("--help") || rest.includes("-h")) {
     process.stdout.write(`${resolveCommandHelp(command) ?? helpText()}
 `);
@@ -17935,11 +18312,21 @@ async function main(argv) {
   }
   if (SINGLE_WORD_AUTH.has(command)) {
     const apiBase = resolveApiBase();
-    if (command === "login")
-      await cmdLogin(apiBase, {}, { timeoutMs: parseTimeoutMs(rest, "login") });
-    else if (command === "pair")
-      await cmdPair(apiBase, { timeoutMs: parseTimeoutMs(rest, "pair") });
-    else if (command === "whoami") await cmdWhoami(apiBase);
+    if (command === "login") {
+      const login = parseLoginArgs(rest);
+      if (login.loopback) {
+        await cmdLogin(
+          apiBase,
+          {},
+          { ...login.timeoutMs !== void 0 ? { timeoutMs: login.timeoutMs } : {} }
+        );
+      } else {
+        await cmdSignIn(apiBase, {
+          wait: login.wait,
+          ...login.timeoutMs !== void 0 ? { timeoutMs: login.timeoutMs } : {}
+        });
+      }
+    } else if (command === "whoami") await cmdWhoami(apiBase);
     else cmdLogout(apiBase);
     return 0;
   }
@@ -17980,5 +18367,6 @@ if (isMain) {
 }
 export {
   LOCAL_COMMAND_NAMES,
-  main
+  main,
+  parseLoginArgs
 };
