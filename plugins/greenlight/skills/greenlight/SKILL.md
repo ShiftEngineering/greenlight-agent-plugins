@@ -190,49 +190,39 @@ Greenlight's builder surface is reachable two equivalent ways — use whichever 
 OAuth clients refresh unreliably; the CLI refreshes its own credential, so the same operation
 succeeds through it.
 
-**Sign the CLI in** — one command, run in the foreground. `greenlight login` prints an approval
-URL and a code and **returns right away**; it does not wait for something that has not happened
-yet. Re-running it resumes the same request and is always safe.
-
-1. `greenlight whoami` — success means there is no sign-in work to do.
-2. `greenlight login` — prints a URL + code, exits with `auth.approval_pending`.
-3. If `approveCliSession` is available to you, call it with that code, then run `greenlight login`
-   again — it collects the credential immediately.
-4. Otherwise give the human the URL and code, then run `greenlight login` again; it waits up to 40
-   seconds for them. Re-running resumes the same request — do not treat its output as a new code
-   unless it prints one.
-5. Still pending after that: **stop polling.** Tell the human to say when they have approved it at
-   the printed URL, and end the turn.
-6. When they come back, run `greenlight login` again **first**. If it prints a _new_ code, the
-   previous one expired — hand over the new one and repeat from step 4.
-
-`auth.approval_pending` is expected progress, never a stop.
+**Sign the CLI in** — if `greenlight whoami` fails, run `greenlight login` and follow its output.
+It prints an approval URL + code and returns immediately; re-running it resumes the same request
+and waits briefly for the approval to land, so `auth.approval_pending` is progress, never an
+error. If the human is taking a while, stop re-running: either start one background
+`greenlight login --wait` (only if your environment notifies you when a background command
+finishes — it exits the moment they approve) or ask them to say when they have approved, then run
+`login` once more.
 
 **CLI ↔ MCP equivalence** — builder goals, callable from either surface:
 
-| Goal                                                          | MCP tool                                                                  | `greenlight` CLI                                   |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
-| Register a new app                                            | `registerApp`                                                             | `apps register`                                    |
-| List apps                                                     | `listApps`                                                                | `apps list`                                        |
-| App detail / live state                                       | `getApp`                                                                  | `apps show --app <id>`                             |
-| Provision a DB / blob, add a workload, request data access    | edit `greenlight.yml` → PR → merge                                        | —                                                  |
-| Discover grantable integrations / credential slugs            | `listGrantableIntegrations`                                               | `integrations list`                                |
-| Read declared env (names/values)                              | `envList`                                                                 | `env list --app <id>`                              |
-| Set / remove env values                                       | `envSet` / `envRemove`                                                    | `env set` / `env rm`                               |
-| Open / merge a PR                                             | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                             |
-| Pipeline status (`--wait` to poll, `detail: 'full'` to debug) | `getPipelineRun`                                                          | `pipeline --app <id> …`                            |
-| Pod logs                                                      | `getLogs`                                                                 | `logs --app <id>`                                  |
-| Verify a deployed response                                    | `curlApp`                                                                 | `curl --app <id> --path <p>`                       |
-| Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`            |
-| Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose`    |
-| Brand assets — the real logo/icon, never invented             | `knowledgeAssetList` / `knowledgeAssetGet`                                | `knowledge asset list` / `knowledge asset get`     |
-| Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                            |
-| Refresh an expired repo token on a checkout                   | `getRepoAccess` → `git remote set-url`                                    | `repo refresh --app <id> [--dir <d>]`              |
-| Run locally — app env with `--app`, else your own grants      | —                                                                         | `run [--app <id>] -- <cmd>` (after `pair`/`login`) |
-| See a deployed app in a browser (render, click, screenshot)   | `getAppPreviewUrl`                                                        | `preview --app <id>`                               |
-| Share / unshare app ownership                                 | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                                |
-| Report platform friction to the Greenlight team               | `submitFeedback`                                                          | `feedback --category <c> --title "…"`              |
-| Re-read this Skill (not loaded, or lost after compaction)     | `getBuilderSkill`                                                         | `skill` / `skill show [--name <skill>]`            |
+| Goal                                                          | MCP tool                                                                  | `greenlight` CLI                                |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- |
+| Register a new app                                            | `registerApp`                                                             | `apps register`                                 |
+| List apps                                                     | `listApps`                                                                | `apps list`                                     |
+| App detail / live state                                       | `getApp`                                                                  | `apps show --app <id>`                          |
+| Provision a DB / blob, add a workload, request data access    | edit `greenlight.yml` → PR → merge                                        | —                                               |
+| Discover grantable integrations / credential slugs            | `listGrantableIntegrations`                                               | `integrations list`                             |
+| Read declared env (names/values)                              | `envList`                                                                 | `env list --app <id>`                           |
+| Set / remove env values                                       | `envSet` / `envRemove`                                                    | `env set` / `env rm`                            |
+| Open / merge a PR                                             | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                          |
+| Pipeline status (`--wait` to poll, `detail: 'full'` to debug) | `getPipelineRun`                                                          | `pipeline --app <id> …`                         |
+| Pod logs                                                      | `getLogs`                                                                 | `logs --app <id>`                               |
+| Verify a deployed response                                    | `curlApp`                                                                 | `curl --app <id> --path <p>`                    |
+| Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
+| Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose` |
+| Brand assets — the real logo/icon, never invented             | `knowledgeAssetList` / `knowledgeAssetGet`                                | `knowledge asset list` / `knowledge asset get`  |
+| Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                         |
+| Refresh an expired repo token on a checkout                   | `getRepoAccess` → `git remote set-url`                                    | `repo refresh --app <id> [--dir <d>]`           |
+| Run locally — app env with `--app`, else your own grants      | —                                                                         | `run [--app <id>] -- <cmd>` (after `login`)     |
+| See a deployed app in a browser (render, click, screenshot)   | `getAppPreviewUrl`                                                        | `preview --app <id>`                            |
+| Share / unshare app ownership                                 | `addCoOwner` / `removeCoOwner`                                            | `share` / `unshare`                             |
+| Report platform friction to the Greenlight team               | `submitFeedback`                                                          | `feedback --category <c> --title "…"`           |
+| Re-read this Skill (not loaded, or lost after compaction)     | `getBuilderSkill`                                                         | `skill` / `skill show [--name <skill>]`         |
 
 CLI-only helpers: `greenlight doctor`, `greenlight whoami`, `greenlight logout`. Recover flag
 detail from `greenlight help` or `greenlight <command> --help` — never guess.
@@ -250,12 +240,23 @@ greenlight knowledge propose --scope app --app <id> --topic schema-notes --title
 After `greenlight apps register`, use `greenlight repo clone --app <id>` for an authenticated
 checkout; the register response's `repo_url` is intentionally token-free.
 
-**If the CLI is missing or stale**, try in order: (1) the plugin bundle (this artifact);
+**Never cache the CLI's path.** Resolve where the bundled CLI lives at the start of each session,
+and resolve it again the moment an invocation fails with `MODULE_NOT_FOUND` or a missing-file
+error. Plugin caches can be content-hashed, so the directory holding the CLI changes whenever the
+plugin updates — including **partway through a long session**, which has been observed: the stored
+absolute path went dead while the CLI kept working fine at its new location. A path that worked an
+hour ago is not evidence it works now, and a stale path looks like a broken CLI when nothing is
+broken.
+
+**If the CLI is missing or stale** (including after a `MODULE_NOT_FOUND`), re-resolve in order:
+(1) the plugin bundle (this artifact) at its _current_ location, not a remembered one;
 (2) control-plane-hosted — `curl` the `/cli/install.sh` route on the same host as your MCP
 endpoint; (3) the public marketplace repo's raw `plugins/greenlight/cli/greenlight.mjs`. **Output
 contract:** stdout is machine JSON only, diagnostics go to stderr, and failures are the canonical
 `{ code, message, details?, next_steps?, request_id }` envelope with a stable non-zero exit
-(2 validation, 3 auth, 4 not-found/forbidden, 1 other). Add `--debug` for transport diagnostics.
+(2 validation, 3 auth or a dead sign-in handshake, 4 not-found/forbidden — or, from `login`,
+`auth.approval_pending`, which is progress and not a failure — 1 other). Always read `code`
+rather than branching on the exit status alone. Add `--debug` for transport diagnostics.
 
 ## How work flows: declare in greenlight.yml, apply on merge
 
@@ -416,11 +417,29 @@ local server, and no secret ever crosses MCP. App code is byte-identical to the 
 env-var names, different values — so always read env vars and never hardcode endpoints. There is
 **no `envPull` tool**; it was retired permanently — do not call it.
 
-**Running a long-lived dev server?** Background `greenlight run` deliberately from the start:
-`nohup greenlight run [--app <id>] -- <cmd> > run.log 2>&1 &` (then `disown`), and poll `run.log`
-for the **`[greenlight] ready`** line — the stable marker that the env is resolved and your
-command is running. Every platform status line carries the `[greenlight]` prefix; anything else in
-the log is your app's own output. To stop the server, signal the `greenlight` process
+**Running a long-lived dev server?** `greenlight run` is the one thing here you should put in the
+background — but **how** to do that is not portable, so do it in this order:
+
+1. **Use your environment's own background/session affordance if it has one** (a "run in
+   background" option on your shell tool, a persistent terminal or session, a task runner). This is
+   the only form your harness actually guarantees, and it is usually the one that also lets you read
+   the output later.
+2. **Only if there is none, fall back to shell backgrounding** —
+   `nohup greenlight run [--app <id>] -- <cmd> > run.log 2>&1 &` then `disown`. Treat this as
+   **unreliable**: some harnesses reap detached children the moment the tool call that started them
+   returns, and whether they do is not something you can detect in advance. It survives on some
+   harnesses and not others.
+3. **Whichever form you used, verify it actually survived** before building on it: after your next
+   step, check the `greenlight` **process is still alive** — and, if you redirected to a file, that
+   the file is still growing. Do not make the file the test: on the native path there may not be
+   one, and treating its absence as failure would send you to the fallback the step above tells you
+   to avoid. If the process is gone it was reaped — go back to step 1, or run the server in the
+   foreground and do other work between checks.
+
+Watch **whichever stream you actually started** — your harness's captured output on the native path,
+or the file you redirected to on the fallback — for the **`[greenlight] ready`** line, the stable
+marker that the env is resolved and your command is running. Every platform status line carries the
+`[greenlight]` prefix; anything else is your app's own output. To stop the server, signal the `greenlight` process
 (`kill <pid>`) — the signal reaches the whole child tree (no `pkill -f` heuristics needed), and a
 tree that ignores SIGTERM is force-killed a few seconds later.
 
@@ -966,7 +985,7 @@ equally required step — see _Show your work_.
 Owners and co-owners add or remove a co-owner by email: `addCoOwner` / `removeCoOwner`
 (`{ app_id, user_email, reason }`), or `greenlight share` / `unshare` (`--app --email --reason`).
 To work on a colleague's app, use `listApps({ slug })` only if the caller already has access;
-otherwise the owner must share first. Once shared, pair the CLI and use `greenlight run` for the
+otherwise the owner must share first. Once shared, sign the CLI in and use `greenlight run` for the
 local loop.
 
 ## Reporting platform friction (for the Greenlight team, not the user)

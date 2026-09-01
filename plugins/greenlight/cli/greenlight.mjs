@@ -17419,7 +17419,7 @@ var LOCAL_FLAG_HELP = {
     flags: KNOWLEDGE_ASSET_GET_FLAGS
   },
   run: {
-    summary: "Run a dev command with governed env injected \u2014 app mode with --app, else user mode. For a long-lived server, background it (`nohup greenlight run \u2026 > run.log 2>&1 &`) and poll the log for the `[greenlight] ready` line; stop it by signalling the greenlight process (the signal reaches the whole child tree).",
+    summary: "Run a dev command with governed env injected \u2014 app mode with --app, else user mode. For a long-lived server, put it in the background using your environment's own background or session affordance where it has one; plain shell backgrounding (`nohup \u2026 & disown`) works on some harnesses and is reaped on others, so verify the process is still alive before relying on it. Watch whichever stream you started for the `[greenlight] ready` line; stop it by signalling the greenlight process (the signal reaches the whole child tree).",
     flags: RUN_FLAGS
   },
   login: {
