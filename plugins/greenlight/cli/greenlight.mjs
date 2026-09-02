@@ -16704,7 +16704,8 @@ async function cmdRun(apiBase, opts, devCommand) {
   const res = await jsonRequest("POST", `${apiBase}/api/cli/run-context`, { token, body });
   ensureOk(res, "Could not resolve the run contract");
   const contract = parseRunContract(res.body);
-  if ((contract.integrations ?? []).some((i) => i.local === "live_proxy")) {
+  const needsProxyToken = (contract.integrations ?? []).some((i) => i.local === "live_proxy") || (contract.resources ?? []).some((r) => r.kind === "blob" && r.local !== "pending");
+  if (needsProxyToken) {
     const minted = await jsonRequest("POST", `${apiBase}/api/cli/proxy-token`, { token, body });
     ensureOk(minted, "Could not mint the local proxy token");
     const dataKey = readString(minted.body, "data_key");

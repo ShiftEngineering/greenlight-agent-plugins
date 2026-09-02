@@ -409,7 +409,7 @@ delivers real secret values into a local process, which never crosses MCP. The m
   merge the app has no grants or resources of its own, so request what the app needs under your own
   identity (`requestCredentialAccess`) and build the whole thing locally against real proxied data.
   The same mode covers no-app work — scripts, notebooks, data exploration. It never injects
-  `DATABASE_URL` or `STORAGE_ACCESS_URL` (app resources are app-scoped).
+  app-scoped resources (`DATABASE_URL`, blob storage).
 - **App mode — `greenlight run --app <app_id> -- <your dev command>`** (e.g.
   `greenlight run --app 3f25… -- npm run dev`) resolves the **app's** env contract server-side —
   the same grants the deployed pod runs on, so local access mirrors production exactly. The
@@ -479,7 +479,9 @@ the grant is the gate. At MVP:
 - **Granted injected integration** → the real credential, in-process. Live.
 - **User-delegated integration** → no laptop actor token exists; author a fixture.
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
-- **Blob** → a freshly minted short-TTL credential. Live (app mode only).
+- **Blob** → a freshly minted short-TTL credential is still injected (app mode only) until
+  cutover; the access path is the [storage skill](../storage/SKILL.md) copy-in client against the
+  proxy, not that credential. Live.
 
 For anything still fixture-only — a manual-approval credential, a declined personal request, or an
 unreachable control plane (corporate egress block) — write your own fixtures/mocks for that
@@ -655,29 +657,22 @@ Greenlight injects **managed** env vars into the running pod, derived from what 
 declares. Your code reads them from the environment; you never declare or set them, and `envSet`
 rejects them as reserved.
 
-| If the manifest declares…                         | The pod receives…                                                                                                  |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `resources:` with `kind: postgres`                | `DATABASE_URL`                                                                                                     |
-| `resources:` with `kind: blob`                    | `STORAGE_CONTAINER_NAME` always; `STORAGE_ACCESS_URL` and `STORAGE_OBJECT_PREFIX` when present — see the blob note |
-| a `grants:` entry for a **proxied** integration   | `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`                                                                      |
-| a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name                                                    |
-| an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                                                                      |
-| always (a `web` workload)                         | `PORT`                                                                                                             |
+| If the manifest declares…                         | The pod receives…                                                                  |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `resources:` with `kind: postgres`                | `DATABASE_URL`                                                                     |
+| `resources:` with `kind: blob`                    | `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL` — see [storage](../storage/SKILL.md) |
+| a `grants:` entry for a **proxied** integration   | `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`                                      |
+| a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name                    |
+| an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                                      |
+| always (a `web` workload)                         | `PORT`                                                                             |
 
-**Blob access: use the variables you were given, all of them.** `getApp` lists the app's exact
-managed variables. Read that list and follow it:
+**Blob access is a focused Skill.** When the manifest declares `kind: blob`, read the bundled
+[storage skill](../storage/SKILL.md) in full before writing object I/O. It owns the copy-in client,
+key encoding, end-user authorization, and the app-relay download pattern. Keep following this core
+skill for the surrounding Greenlight manifest, env, local-development, delivery, and verification
+workflow.
 
-- **`STORAGE_CONTAINER_NAME`** is always the container or bucket you open. Pass it to your storage
-  SDK as-is.
-- **`STORAGE_OBJECT_PREFIX`**, when present, is where your app's objects live inside that container.
-  Prepend it to every object key. It appears when apps share one bucket, and writing outside it is
-  refused — this is enforced, not a convention.
-- **`STORAGE_ACCESS_URL`**, when present, is a pre-authorized URL for the container; use it directly.
-  When it is absent the container is reached by the pod's own identity instead, so let your SDK pick
-  up ambient credentials (`@google-cloud/storage` with Application Default Credentials; the AWS
-  SDK's default provider chain) — you never handle a key either way.
-
-Treat every one of these as absent-until-listed rather than assuming a fixed set.
+Treat every managed name as absent-until-listed rather than assuming a fixed set.
 
 Whether a grant delivers the proxy pair (**proxied**) or a direct credential under a fixed name
 (**injected**) is a property of the integration (`delivery_mode`), not the manifest — so the exact
@@ -689,8 +684,8 @@ redeploys, and a pending injected grant does **not** give the app `GREENLIGHT_DA
 for proxied grants). `getApp`/`envList` reflect this — a pending injected grant shows its
 `env_var_name` on the grant but does not list it as a managed name. The fixed reserved set — rejected by `envSet` and the manifest validator regardless of
 what the app declares — is `DATABASE_URL`, `STORAGE_ACCESS_URL`, `STORAGE_ACCESS_TOKEN`,
-`STORAGE_ENDPOINT`, `STORAGE_CONTAINER_NAME`, `STORAGE_SAS_URL` (Azure legacy alias for
-`STORAGE_ACCESS_URL`, deprecation-window only — prefer `STORAGE_ACCESS_URL`),
+`STORAGE_ENDPOINT`, `STORAGE_CONTAINER_NAME`, `STORAGE_OBJECT_PREFIX`, `STORAGE_SAS_URL`,
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `DATABASE_SERVER_CA_CERT`,
 `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`, `PORT`, `GREENLIGHT_AI_KEY`,
 `GREENLIGHT_AI_BASE_URL`, `PUBLIC_BASE_URL`, `DEV_USER_EMAIL`, `DEV_USER_GROUPS`; each injected
 integration additionally reserves its own env-var name per-app. User-declared names must match
@@ -840,6 +835,13 @@ Treat the token as opaque and request-scoped: never inspect, log, store, or reus
 request that carried it — reuse misattributes data access. Background work (startup tasks, timers,
 queue consumers, scheduled jobs) has no user and no token: workload attribution is the correct
 outcome there, so never mint or replay a token for it.
+
+### Blob storage
+
+Before writing object I/O, copying in a storage client, or serving a file to a browser, read the
+bundled [storage skill](../storage/SKILL.md) in full. It owns the copy-in client, key encoding,
+end-user authorization, and the app-relay download pattern. Keep following this core skill for the
+surrounding Greenlight manifest, env, local-development, delivery, and verification workflow.
 
 ### Connected databases
 
