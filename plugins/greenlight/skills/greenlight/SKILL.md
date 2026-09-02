@@ -97,11 +97,36 @@ them together):
    naming conventions).
 3. Org Knowledge — `knowledgeList({ scope: 'org' })` — customer-specific conventions and context.
 
+**Ground before you ask, and re-ground after a compaction.** The three calls above come before the
+intake questions, not after: the answers you offer depend on what the org actually has. If your
+context was summarized or compacted, **call `listGrantableIntegrations` again** rather than
+trusting what an earlier turn said it returned. It is read-only, cheap, and the org's connected
+systems change without warning; a remembered list is how you end up promising a system this
+company does not have.
+
 Then **open with what's possible at their company**: name the data sources you could wire in (by
 friendly name — "your CRM", "your ticketing system" — whatever the integration list actually
 returns), mention any existing app that overlaps, and make 2–3 concrete suggestions tailored to
 what they said (or to their role, if they said nothing). You are the one who knows what Greenlight
 can do here; lead with it.
+
+**When nothing is connected, say so.** If `listGrantableIntegrations` comes back empty, do not
+quietly drop the data-source part of the conversation or skip the question. Tell the user their
+company hasn't connected any systems to Greenlight yet, that their IT administrator is the one who
+connects them (in Greenlight, under Integrations), and that you can still build the app with data
+it stores itself. Never silence, never an omitted section.
+
+**When they name a system the company doesn't have, say that too.** A user who asks to pull from a
+vendor or tool that isn't in the list gets a plain answer, not a guess, a hallucinated grant, or an
+attempt to reach that vendor's API directly: it isn't connected to Greenlight, here is what is, and
+IT can connect it. Then offer the closest thing you can actually build. The same applies mid-build:
+a `grants:` entry naming an unregistered integration is refused at merge, and the refusal lists the
+org's available slugs, so a mistyped or abbreviated slug is correctable from the error alone (see
+_A complete greenlight.yml_).
+
+**Do not offer to request a new connection.** You cannot file one, and neither can the user from
+inside their agent. Point at IT and stop there; promising a request you can't make is worse than
+saying you can't.
 
 Then gather intent as a **short structured intake** — a few product questions with selectable
 options, not an engineering interview. Use your environment's structured-question affordance (a
@@ -111,7 +136,7 @@ form, a multiple-choice prompt) when it has one; otherwise ask the same things i
 - Who will use it? _(just me / my team / the whole company)_
 - Does it need to remember data between visits? _(yes, save records / yes, files too / no / not sure)_
 - Should it pull from any company systems? — offer the actual integrations you discovered, by
-  friendly name.
+  friendly name. If none are connected, say so instead of dropping the question.
 
 Map the answers yourself and keep the mapping invisible: "save records" → a postgres resource;
 "files too" → blob; a named company system → a grant; "whole company" → nothing special (SSO
@@ -517,7 +542,11 @@ Before you add or change a `grants:` entry, call `listGrantableIntegrations` (or
 integrations list`) to see which integrations and credential slugs the org has registered, whether
 each is `injected` or `proxied`, and to copy its ready-made `manifest_grant_example` straight into
 `greenlight.yml`. It is read-only and returns no secrets — a grant naming a slug it does not list
-(or one marked `configured: false`) cannot be approved.
+(or one marked `configured: false`) cannot be approved. Both refusals name the org's available
+integration slugs back to you: the merge-time policy denial and the deploy failure each carry
+`available_integrations`, so a mistyped or abbreviated slug is a one-line fix rather than a dead
+end. An empty list there means the org has connected nothing yet — tell the user and point at IT
+(see _Starting from an idea_), don't retry.
 
 Grants are request signals, not merge blockers: an auto-approved grant works the moment the PR
 merges; an IT-required grant deploys in `pending` and the proxy returns `403` for it until IT
@@ -541,7 +570,9 @@ the **user's own identity** instead:
 - **Request** with `requestCredentialAccess({ integration, credential_slug, reason })` (or
   `greenlight request --integration <slug> --credential <slug> --reason "..."`). The result is
   `granted` immediately when the credential auto-approves, else `pending` for IT review — tell the
-  user to expect IT approval in that case.
+  user to expect IT approval in that case. An integration the org hasn't registered is refused with
+  the available slugs in `details.available_integrations`; correct the slug from that, or, if it is
+  empty, tell the user nothing is connected yet rather than re-requesting.
 - **Use** with `greenlight run -- <cmd>` (no `--app`): the process gets `GREENLIGHT_PROXY_URL` + a
   user-scoped `GREENLIGHT_DATA_KEY` resolving the user's own granted integrations through the same
   governed proxy. No credential lands on the laptop for proxied integrations.

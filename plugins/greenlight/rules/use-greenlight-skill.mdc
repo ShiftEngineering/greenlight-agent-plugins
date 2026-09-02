@@ -20,6 +20,13 @@ and show the app with `getAppPreviewUrl`) and which MCP tools to use for what (`
 `listGrantableIntegrations`, `getRepoAccess`, `getApp`, `getPipelineRun`, `getAppPreviewUrl`, …),
 each with a CLI equivalent. Skipping it leads to wrong tool usage and wrong sequencing.
 
+On a cold invocation, **ground yourself before you ask anything**: call `listGrantableIntegrations`,
+`listApps`, and `knowledgeList({ scope: 'org' })`, then open by telling the user what is possible at
+their company. Never present a company system you have not seen in that list, and when the list
+comes back empty, say plainly that nothing is connected yet and that IT connects systems, rather
+than skipping the subject.
+
 If your context was summarized or compacted, re-read the entire skill before continuing Greenlight
-work. When the core skill directs you to a focused bundled skill, read that focused skill in full
+work, and re-run `listGrantableIntegrations` rather than trusting what an earlier turn reported.
+When the core skill directs you to a focused bundled skill, read that focused skill in full
 before doing the task. Subagents must read the same applicable skills too.
