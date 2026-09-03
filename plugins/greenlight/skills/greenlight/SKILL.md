@@ -585,6 +585,34 @@ line is drawn at the first merge — user mode is also how you run an app you're
 since until that merge the app has no grants of its own (see _Local development_). When personal
 work graduates into a real app, `registerApp` and declare the app's own `grants:` in the manifest.
 
+## Asking IT to connect a system
+
+When the user needs data from a system the company has **not** connected, `listGrantableIntegrations`
+simply will not list it. Say so plainly — it is not connected, here is what is — and then, if the
+system is one Greenlight catalogues, offer to ask IT for it:
+
+- **File it** with `requestIntegrationConnection({ catalog_key, reason })` (or
+  `greenlight integrations connect --key <catalog_key> --reason "..."`). Write the reason in the
+  user's own terms: what the app needs the system for. **Never put a credential, key, password, or
+  connection string in it** — the text is shown to IT, emailed, and recorded, and a request that
+  looks like it carries one is refused rather than stored.
+- **It is never auto-approved.** A person reviews every one, and nothing is connected until an
+  administrator registers it. Tell the user that in those words, so they expect a wait rather than a
+  system appearing.
+- **Never block on the outcome.** Filing a request is not a checkpoint: keep building everything the
+  app can do without that system, and fold the data in later if IT connects it. An app that exists
+  and is missing one source beats an app that was never built while a request sat in a queue.
+- **Re-asking is safe.** An open request comes back unchanged and does not pester IT a second time,
+  and so does one IT has approved but not yet finished registering — the retry never destroys a
+  decision. A previously declined one is re-raised with the new reason and comes back carrying IT's
+  decline reason in `decision_note`; relay that to the user, since it says what would change the
+  answer. So a user who asks again later gets a real answer rather than a silent no-op.
+- **Not everything is requestable.** A system the catalog does not carry is refused with the list of
+  keys that are. There is nothing to file for it — point at IT and stop, the same as before.
+
+This is a different ask from `requestCredentialAccess`, which requests access to something the org
+already connected. This one requests the connection itself.
+
 ## Show your work: the local preview loop
 
 Building is a conversation held through the running app. The citizen developer can't read your

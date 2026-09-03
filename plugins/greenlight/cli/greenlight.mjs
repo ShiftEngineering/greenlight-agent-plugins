@@ -16996,6 +16996,26 @@ var MCP_COMMANDS = {
       reason: { field: "reason", type: "string", describe: "Why you need it \u2014 shown to IT." }
     }
   },
+  // The connection-request twin of `request`. Separate verb, because asking for a
+  // system the org has not connected is a different (and higher-privilege) ask than
+  // requesting access to one it already has — and this one is never auto-approved.
+  "integrations connect": {
+    tool: "requestIntegrationConnection",
+    summary: "Ask IT to connect a catalogued system this org has not connected yet.",
+    flags: {
+      key: {
+        field: "catalog_key",
+        type: "string",
+        required: true,
+        describe: "Catalog key of the system to connect."
+      },
+      reason: {
+        field: "reason",
+        type: "string",
+        describe: "Why it is needed \u2014 shown to IT. Never include a credential."
+      }
+    }
+  },
   "env list": {
     tool: "envList",
     summary: "Read an app's env contract (values withheld unless --reveal; sensitive always withheld).",
@@ -17788,7 +17808,7 @@ async function cmdSignIn(apiBase, opts = {}) {
 async function create(apiBase) {
   const code = genPairingCode();
   const created = await jsonRequest("POST", `${apiBase}/api/cli/sessions`, {
-    body: { pairing_code_hash: sha256(code), cli_version: cliVersion() }
+    body: { pairing_code_hash: sha256(code), cli_version: CLI_VERSION }
   });
   if (created.status !== 201) {
     throw new CliError(`Could not start sign-in (HTTP ${created.status}).`);
@@ -17979,9 +17999,6 @@ function raisedInterval(polled) {
   const interval = details["interval"];
   return typeof interval === "number" && interval > 0 ? interval : 5;
 }
-function cliVersion() {
-  return process.env["GREENLIGHT_CLI_VERSION"] ?? "dev";
-}
 
 // packages/cli/src/commands/whoami.ts
 async function cmdWhoami(apiBase) {
@@ -18126,18 +18143,13 @@ async function startLoopback(expectedState, apiBase) {
     const code = url2.searchParams.get("code");
     const state = url2.searchParams.get("state");
     if (error2) {
-      sendPage(
-        res,
-        400,
-        "Sign-in failed",
-        "Your identity provider reported an error. Close this tab and run `greenlight login` again."
-      );
+      sendFailurePage(res);
       rejectCode(new CliError(`Authorization failed: ${error2}`));
     } else if (state !== expectedState) {
-      sendPage(res, 400, "Sign-in failed", "State mismatch \u2014 possible CSRF. Start over.");
+      sendFailurePage(res);
       rejectCode(new CliError("OAuth state mismatch \u2014 aborting."));
     } else if (!code) {
-      sendPage(res, 400, "Sign-in failed", "No authorization code was returned.");
+      sendFailurePage(res);
       rejectCode(new CliError("No authorization code returned."));
     } else {
       res.writeHead(302, { location: `${apiBase}/cli/done` }).end();
@@ -18160,12 +18172,22 @@ async function startLoopback(expectedState, apiBase) {
     close: () => server.close()
   };
 }
-function sendPage(res, status, title, body) {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;text-align:center"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`;
-  res.writeHead(status, { "content-type": "text/html; charset=utf-8" }).end(html);
+var FAILURE_TITLE = "Sign-in couldn\u2019t be completed";
+var FAILURE_BODY = "Close this tab and start sign-in again in your agent.";
+var FAILURE_STYLES = `
+:root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --ink: #0b0d12; --muted: #4b5563; --eyebrow: #6b7280 }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0b0d12; --card: #14171f; --line: #262b36; --ink: #f4f5f7; --muted: #a1a8b5; --eyebrow: #8b93a1 }
 }
-function escapeHtml(value) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem 1.25rem; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif }
+main { max-width: 26rem; width: 100%; box-sizing: border-box; padding: 2rem; border-radius: 14px; background: var(--card); border: 1px solid var(--line); text-align: center }
+.eyebrow { margin: 0 0 .75rem; font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; color: var(--eyebrow) }
+h1 { margin: 0; font-size: 1.375rem; line-height: 1.25; font-weight: 800 }
+p.body { margin: .5rem 0 0; font-size: .875rem; line-height: 1.6; color: var(--muted) }
+`.trim();
+function sendFailurePage(res) {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${FAILURE_TITLE} \xB7 Greenlight</title><style>${FAILURE_STYLES}</style></head><body><main><p class="eyebrow">Greenlight</p><h1>${FAILURE_TITLE}</h1><p class="body">${FAILURE_BODY}</p></main></body></html>`;
+  res.writeHead(400, { "content-type": "text/html; charset=utf-8" }).end(html);
 }
 function defaultOpenBrowser(url2) {
   const u = url2.toString();
