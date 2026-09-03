@@ -479,9 +479,9 @@ the grant is the gate. At MVP:
 - **Granted injected integration** → the real credential, in-process. Live.
 - **User-delegated integration** → no laptop actor token exists; author a fixture.
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
-- **Blob** → a freshly minted short-TTL credential is still injected (app mode only) until
-  cutover; the access path is the [storage skill](../storage/SKILL.md) copy-in client against the
-  proxy, not that credential. Live.
+- **Blob** → the [storage skill](../storage/SKILL.md) copy-in client against the proxy
+  (`GREENLIGHT_PROXY_URL` + the minted `purpose: 'local'` token). No `STORAGE_*` credential is
+  injected. Live (app mode only).
 
 For anything still fixture-only — a manual-approval credential, a declined personal request, or an
 unreachable control plane (corporate egress block) — write your own fixtures/mocks for that

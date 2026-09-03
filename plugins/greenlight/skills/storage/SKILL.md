@@ -43,8 +43,7 @@ const { stream, metadata } = await getObject(
 
 Do not import `@google-cloud/storage`, `@aws-sdk/client-s3`, the Azure Blob SDK, or any `STORAGE_*`
 env var as an app storage path. Those names stay reserved so stale generated code fails on an unset
-variable. `greenlight run` may still inject a short-TTL `STORAGE_*` credential until cutover — do
-not read it.
+variable.
 
 The same module works under `greenlight run` in app mode: local and deployed storage use the same
 proxy pair. User mode does not inject blob resources.

@@ -16462,7 +16462,7 @@ var INTEGRATION_LABEL = {
   fixtures_user_delegated: "fixtures (user-delegated)"
 };
 var RESOURCE_LABEL = {
-  live_sas: "live (short-TTL SAS)",
+  live_proxy: "live (proxy token)",
   fixtures_inspect: "fixtures + inspectAppDb",
   pending: "pending (provisioning)"
 };
