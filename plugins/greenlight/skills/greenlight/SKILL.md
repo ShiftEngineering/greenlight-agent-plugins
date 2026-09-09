@@ -521,7 +521,7 @@ resources: # one entry max per kind at MVP
   - kind: blob
     name: receipts
 
-grants: # integration access requests
+grants: # integration access requests; one entry max per integration
   - integration: <integration-name> # use the real integration names the user/org provides
     credential: <slug> # the credential to bind, by its slug (e.g. crm-readonly); IT registers the slugs — discover integrations and their slugs with listGrantableIntegrations. Not a fixed read/write/access enum.
     reason: Read CRM accounts to prefill expense categories.
@@ -549,6 +549,14 @@ integration slugs back to you: the merge-time policy denial and the deploy failu
 `available_integrations`, so a mistyped or abbreviated slug is a one-line fix rather than a dead
 end. An empty list there means the org has connected nothing yet — tell the user and point at IT
 (see _Starting from an idea_), don't retry.
+
+**One `grants:` entry per integration.** An app binds exactly one credential per integration, so
+listing the same `integration:` twice with different credential slugs is rejected when you open the
+PR. When one system has to do two jobs — read pull requests _and_ file issues — that is one grant on
+one credential whose upstream scopes cover both, not two grants. Multiple credentials on an
+integration exist so different apps can get different capability, not so one app can hold several.
+If the credential the org registered is too narrow for what the app needs, tell the user and point
+at IT, who can widen it or register another.
 
 Grants are request signals, not merge blockers: an auto-approved grant works the moment the PR
 merges; an IT-required grant deploys in `pending` and the proxy returns `403` for it until IT
