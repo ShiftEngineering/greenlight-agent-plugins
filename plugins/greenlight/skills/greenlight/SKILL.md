@@ -216,12 +216,19 @@ OAuth clients refresh unreliably; the CLI refreshes its own credential, so the s
 succeeds through it.
 
 **Sign the CLI in** — if `greenlight whoami` fails, run `greenlight login` and follow its output.
-It prints an approval URL + code and returns immediately; re-running it resumes the same request
-and waits briefly for the approval to land, so `auth.approval_pending` is progress, never an
-error. If the human is taking a while, stop re-running: either start one background
-`greenlight login --wait` (only if your environment notifies you when a background command
-finishes — it exits the moment they approve) or ask them to say when they have approved, then run
-`login` once more.
+That is the only sign-in command. It tries the person's own default browser first: the CLI opens
+that browser itself, and one already signed in to Greenlight finishes the whole thing in seconds
+with nothing for anyone to type or read. **Never load a sign-in URL yourself — not the authorize
+URL, not `/cli/approve` — in your own preview pane or embedded browser tool.** Yours holds none of
+the person's cookies, so it strands them on an SSO wall in a window they are not even looking at;
+the CLI already reached the browser they are actually using. When no browser could be reached,
+`login` prints an approval URL + code and returns immediately: hand the person both, then re-run
+`login` to collect the credential, so `auth.approval_pending` is progress, never an error. If the
+human is taking a while, stop re-running: either start one background `greenlight login --wait`
+(only if your environment notifies you when a background command finishes — it exits the moment
+they approve) or ask them to say when they have approved, then run `login` once more. **Do not pass
+`--loopback`** — plain `login` already tries the local browser, while `--loopback` removes the code
+fallback and blocks for five minutes, which wedges you on any machine with no browser to open.
 
 **CLI ↔ MCP equivalence** — builder goals, callable from either surface:
 

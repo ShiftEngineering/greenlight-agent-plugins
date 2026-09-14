@@ -406,11 +406,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants);
+          this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -427,10 +427,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants);
+        this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -491,8 +491,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants) {
-        this.code = optimizeExpr(this.code, names, constants);
+      optimizeNames(names, constants2) {
+        this.code = optimizeExpr(this.code, names, constants2);
         return this;
       }
       get names() {
@@ -521,12 +521,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants))
+          if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -579,12 +579,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a;
-        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants);
-        if (!(super.optimizeNames(names, constants) || this.else))
+        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants2);
+        if (!(super.optimizeNames(names, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants);
+        this.condition = optimizeExpr(this.condition, names, constants2);
         return this;
       }
       get names() {
@@ -607,10 +607,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants);
+        this.iteration = optimizeExpr(this.iteration, names, constants2);
         return this;
       }
       get names() {
@@ -646,10 +646,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants);
+        this.iterable = optimizeExpr(this.iterable, names, constants2);
         return this;
       }
       get names() {
@@ -691,11 +691,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a, _b;
-        super.optimizeNames(names, constants);
-        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants);
+        super.optimizeNames(names, constants2);
+        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
         return this;
       }
       get names() {
@@ -996,7 +996,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants) {
+    function optimizeExpr(expr, names, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1011,14 +1011,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -17431,7 +17431,7 @@ var LOGIN_FLAGS = {
   loopback: {
     field: "loopback",
     type: "boolean",
-    describe: "Use the browser OAuth flow on this machine instead of a code. One command, but it needs a browser here."
+    describe: "Browser only, with no code fallback, waiting up to five minutes. Plain login already tries the browser first, so this is for a human who wants no code at all \u2014 and it wedges on a machine with no browser to open."
   }
 };
 var LOCAL_FLAG_HELP = {
@@ -17444,7 +17444,7 @@ var LOCAL_FLAG_HELP = {
     flags: RUN_FLAGS
   },
   login: {
-    summary: "Sign in. Prints an approval URL and a code, then returns right away. Approve the code \u2014 call approveCliSession({ code }) if the Greenlight MCP tools are connected, or have a person enter it at the printed URL \u2014 then run `greenlight login` again to collect the credential. Re-running resumes the same request and is always safe. --loopback keeps the browser OAuth flow for a human signing in on this machine.",
+    summary: "Sign in. Tries your own default browser first \u2014 a browser already signed in to Greenlight finishes in seconds with nothing to type \u2014 and otherwise prints an approval URL and a code and returns right away. Approve the code \u2014 call approveCliSession({ code }) if the Greenlight MCP tools are connected, or have a person enter it at the printed URL \u2014 then run `greenlight login` again to collect the credential. Re-running resumes the same request and is always safe. --loopback is the browser-only flow for a human signing in on this machine: no code fallback, and it waits up to five minutes.",
     flags: LOGIN_FLAGS
   },
   preview: { summary: "Emit a single-use preview URL for the app.", flags: PREVIEW_FLAGS },
@@ -17462,7 +17462,10 @@ var LOCAL_FLAG_HELP = {
   }
 };
 var AUTH_COMMANDS = [
-  ["login [--wait] [--timeout <s>] [--loopback]", "Sign in. Returns quickly; safe to re-run."],
+  [
+    "login [--wait] [--timeout <s>] [--loopback]",
+    "Sign in \u2014 your browser first, else a code. Returns quickly; safe to re-run."
+  ],
   ["whoami", "Show the signed-in identity."],
   ["logout", "Remove the stored CLI credentials."]
 ];
@@ -17596,11 +17599,15 @@ import { homedir as homedir2, hostname as hostname2 } from "node:os";
 import { join as join3 } from "node:path";
 var ACQUIRE_TIMEOUT_MS = 5e3;
 var RETRY_MS = 25;
-var lockPath = (apiBase) => join3(
+var authStatePath = (apiBase, extension) => join3(
   homedir2(),
   ".greenlight",
-  `auth-${createHash3("sha256").update(apiBase, "utf8").digest("hex").slice(0, 16)}.lock`
+  `auth-${createHash3("sha256").update(apiBase, "utf8").digest("hex").slice(0, 16)}.${extension}`
 );
+var lockPath = (apiBase) => authStatePath(apiBase, "lock");
+function ensureAuthStateDir() {
+  mkdirSync3(join3(homedir2(), ".greenlight"), { recursive: true, mode: 448 });
+}
 function holderIsGone(holder) {
   if (holder.host !== hostname2()) return false;
   try {
@@ -17622,7 +17629,7 @@ function readHolder(path) {
 }
 function withAuthLock(apiBase, fn, onDiagnostic) {
   const path = lockPath(apiBase);
-  mkdirSync3(join3(homedir2(), ".greenlight"), { recursive: true, mode: 448 });
+  ensureAuthStateDir();
   const start = Date.now();
   for (; ; ) {
     try {
@@ -17699,8 +17706,354 @@ function cmdLogout(apiBase) {
   note("Logged out \u2014 the CLI credential was removed from this machine.");
 }
 
-// packages/cli/src/commands/sign-in.ts
-import { createHash as createHash4, randomBytes as randomBytes3 } from "node:crypto";
+// packages/cli/src/auth-inflight.ts
+import { closeSync as closeSync3, fsyncSync as fsyncSync3, openSync as openSync3, unlinkSync as unlinkSync4, writeSync as writeSync3 } from "node:fs";
+import { hostname as hostname3 } from "node:os";
+var markerPath = (apiBase) => authStatePath(apiBase, "inflight");
+var MAX_INFLIGHT_AGE_MS = 12e4;
+function readInflight(apiBase) {
+  return readHolder(markerPath(apiBase));
+}
+function claimInflight(apiBase, onDiagnostic) {
+  const existing = readInflight(apiBase);
+  if (existing !== void 0) {
+    const expired = inflightExpired(existing);
+    if (!expired && !holderIsGone(existing)) return { claimed: false, holder: existing };
+    onDiagnostic?.(
+      expired ? `[greenlight] Reclaiming a sign-in attempt started ${Math.round((Date.now() - existing.at) / 1e3)}s ago by process ${existing.pid}, which is longer than a sign-in can run.` : `[greenlight] Reclaiming a sign-in attempt left by process ${existing.pid}, which is no longer running.`
+    );
+  }
+  write(apiBase, { pid: process.pid, host: hostname3(), at: Date.now() });
+  return existing === void 0 ? { claimed: true } : { claimed: true, reclaimedFrom: existing };
+}
+function releaseInflight(apiBase) {
+  const existing = readInflight(apiBase);
+  if (existing === void 0) return;
+  if (existing.pid !== process.pid || existing.host !== hostname3()) return;
+  try {
+    unlinkSync4(markerPath(apiBase));
+  } catch {
+  }
+}
+function releaseInflightUnderLock(apiBase) {
+  try {
+    withAuthLock(apiBase, () => releaseInflight(apiBase));
+  } catch {
+  }
+}
+function inflightExpired(holder) {
+  return holder.at > 0 && Date.now() - holder.at > MAX_INFLIGHT_AGE_MS;
+}
+function write(apiBase, holder) {
+  ensureAuthStateDir();
+  const fd = openSync3(markerPath(apiBase), "w", 384);
+  try {
+    writeSync3(fd, JSON.stringify(holder));
+    fsyncSync3(fd);
+  } finally {
+    closeSync3(fd);
+  }
+}
+
+// packages/cli/src/oauth/browser.ts
+import { spawn as spawn2 } from "node:child_process";
+import { accessSync, constants } from "node:fs";
+import { delimiter, join as join4 } from "node:path";
+var LAUNCH_BOUND_MS = 400;
+function openerCommand() {
+  if (process.platform === "win32") {
+    return { command: "rundll32", leadingArgs: ["url.dll,FileProtocolHandler"] };
+  }
+  if (process.platform === "darwin") return { command: "open", leadingArgs: [] };
+  return { command: "xdg-open", leadingArgs: [] };
+}
+function resolveBrowserOpener() {
+  const { command, leadingArgs } = openerCommand();
+  const path = onPath(command);
+  return path === void 0 ? void 0 : { path, leadingArgs };
+}
+function onPath(command) {
+  const candidates = /[/\\]/.test(command) ? [command] : (process.env["PATH"] ?? "").split(delimiter).filter((dir) => dir.length > 0).map((dir) => join4(dir, command));
+  const extensions = process.platform === "win32" ? (process.env["PATHEXT"] ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((e) => e.length > 0) : [""];
+  for (const candidate of candidates) {
+    for (const extension of extensions) {
+      const file = `${candidate}${extension}`;
+      try {
+        accessSync(file, constants.X_OK);
+        return file;
+      } catch {
+      }
+    }
+  }
+  return void 0;
+}
+function launchBrowserOpener(opener, url2) {
+  return new Promise((resolve2) => {
+    let child;
+    let settled = false;
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve2(outcome);
+    };
+    const timer = setTimeout(() => {
+      child?.unref();
+      finish("started");
+    }, LAUNCH_BOUND_MS);
+    if (typeof timer.unref === "function") timer.unref();
+    try {
+      child = spawn2(opener.path, [...opener.leadingArgs, url2.toString()], {
+        stdio: "ignore",
+        detached: true,
+        shell: false
+      });
+    } catch {
+      finish("unavailable");
+      return;
+    }
+    child.on("error", () => finish("unavailable"));
+    child.on("exit", (code) => finish(code === 0 ? "started" : "unavailable"));
+  });
+}
+
+// packages/cli/src/oauth/login.ts
+import { randomBytes as randomBytes3 } from "node:crypto";
+import { createServer } from "node:http";
+import { URL as URL3 } from "node:url";
+var DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1e3;
+var LOOPBACK_HEARTBEAT_MS = 30 * 1e3;
+var CALLBACK_PATH = "/callback";
+var BROWSER_WINDOW_MS = 15e3;
+var BROWSER_HEARTBEAT_MS = 5 * 1e3;
+async function cmdLogin(apiBase, deps = {}, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
+  const injected = deps.openBrowser;
+  await runLoopbackFlow(apiBase, {
+    timeoutMs,
+    heartbeatMs: LOOPBACK_HEARTBEAT_MS,
+    heartbeat: "[greenlight] Still waiting for the browser sign-in\u2026",
+    releasesInflight: false,
+    open: async (url2) => {
+      process.stderr.write(
+        `
+To sign in to Greenlight, open this URL in your browser:
+${url2.toString()}
+
+[greenlight] Waiting for the browser sign-in (up to ${Math.round(timeoutMs / 1e3)}s) \u2014 this command blocks until the round-trip completes. Run it in the background if you need the terminal; confirm with \`greenlight whoami\`.
+`
+      );
+      if (injected) await injected(url2);
+      else {
+        const opener = resolveBrowserOpener();
+        if (opener !== void 0) await launchBrowserOpener(opener, url2);
+      }
+      return "started";
+    }
+  });
+}
+async function attemptBrowserSignIn(apiBase, deps) {
+  let opened = false;
+  try {
+    await runLoopbackFlow(apiBase, {
+      timeoutMs: deps.windowMs,
+      heartbeatMs: BROWSER_HEARTBEAT_MS,
+      heartbeat: "[greenlight] Still waiting for your browser\u2026",
+      releasesInflight: true,
+      open: async (url2) => {
+        const launched = await deps.launch(url2);
+        if (launched === "started") {
+          opened = true;
+          note(
+            `[greenlight] A Greenlight sign-in tab should appear in your browser. Waiting up to ${Math.round(deps.windowMs / 1e3)}s for it to finish.`
+          );
+        }
+        return launched;
+      }
+    });
+    return "signed-in";
+  } catch (err) {
+    if (!(err instanceof LaunchUnavailable) && (!(err instanceof CliError) || err.code !== "auth.login_timed_out")) {
+      const reason = err instanceof CliError ? err.code : "unexpected_error";
+      note(`[greenlight] The browser sign-in did not complete (${reason}).`);
+    }
+    return opened ? "tab-opened" : "no-tab";
+  }
+}
+var LaunchUnavailable = class extends Error {
+};
+async function runLoopbackFlow(apiBase, flow) {
+  const { timeoutMs } = flow;
+  const deadlineAt = Date.now() + timeoutMs;
+  let deadlineTimer;
+  const deadline = new Promise((_, reject) => {
+    deadlineTimer = setTimeout(() => reject(loginTimedOut()), timeoutMs);
+  });
+  if (deadlineTimer && typeof deadlineTimer.unref === "function") deadlineTimer.unref();
+  const fetchWithDeadline = (input, init) => {
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) return Promise.reject(loginTimedOut());
+    return fetch(input, { ...init, signal: AbortSignal.timeout(remaining) });
+  };
+  let abortForLaunch;
+  const launchGate = new Promise((_, reject) => {
+    abortForLaunch = reject;
+  });
+  launchGate.catch(() => {
+  });
+  const state = randomBytes3(16).toString("base64url");
+  const binding = startLoopback(state, apiBase);
+  binding.catch(() => {
+  });
+  try {
+    const loopback = await Promise.race([binding, deadline]);
+    const provider = new GreenlightOAuthProvider(apiBase, loopback.redirectUri, state, {
+      staged: true
+    });
+    const client = provider.clientInformation();
+    if (client && !("redirect_uris" in client)) {
+      provider.invalidateCredentials("client");
+      provider.invalidateCredentials("tokens");
+    }
+    provider.onAuthorizationUrl = async (url2) => {
+      if (await flow.open(url2) === "unavailable") abortForLaunch(new LaunchUnavailable());
+    };
+    const heartbeat = setInterval(() => note(flow.heartbeat), flow.heartbeatMs);
+    if (typeof heartbeat.unref === "function") heartbeat.unref();
+    try {
+      const started = await Promise.race([
+        auth(provider, { serverUrl: apiBase, scope: OAUTH_SCOPE, fetchFn: fetchWithDeadline }),
+        deadline,
+        launchGate
+      ]);
+      if (started === "AUTHORIZED") {
+        commitCredential(apiBase, provider, flow.releasesInflight);
+        note("Already signed in to Greenlight.");
+        return;
+      }
+      if (started !== "REDIRECT") throw new CliError(`Unexpected OAuth state: ${started}`);
+      const code = await Promise.race([loopback.waitForCode(), deadline, launchGate]);
+      const finished = await Promise.race([
+        auth(provider, {
+          serverUrl: apiBase,
+          authorizationCode: code,
+          scope: OAUTH_SCOPE,
+          fetchFn: fetchWithDeadline
+        }),
+        deadline,
+        launchGate
+      ]);
+      if (finished !== "AUTHORIZED") throw new CliError("OAuth authorization did not complete.");
+      commitCredential(apiBase, provider, flow.releasesInflight);
+      note(`Signed in to Greenlight. The CLI credential is stored in ${credentialStoreLabel()}.`);
+    } catch (err) {
+      if (err instanceof LaunchUnavailable) throw err;
+      if (!(err instanceof CliError) && Date.now() >= deadlineAt) throw loginTimedOut();
+      throw err;
+    } finally {
+      clearInterval(heartbeat);
+      loopback.close();
+    }
+  } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    void binding.then(
+      (l) => l.close(),
+      () => {
+      }
+    );
+  }
+}
+function commitCredential(apiBase, provider, releasesInflight) {
+  withAuthLock(
+    apiBase,
+    () => {
+      provider.commitStaged();
+      clearPending(apiBase);
+      if (releasesInflight) releaseInflight(apiBase);
+    },
+    note
+  );
+}
+function loginTimedOut() {
+  return new CliError(
+    "Timed out waiting for the browser sign-in. Run `greenlight login` again.",
+    "auth.login_timed_out",
+    3
+  );
+}
+async function startLoopback(expectedState, apiBase) {
+  let resolveCode;
+  let rejectCode;
+  const codePromise = new Promise((res, rej) => {
+    resolveCode = res;
+    rejectCode = rej;
+  });
+  codePromise.catch(() => {
+  });
+  const server = createServer((req, res) => {
+    const url2 = new URL3(req.url ?? "/", "http://127.0.0.1");
+    if (url2.pathname !== CALLBACK_PATH) {
+      res.writeHead(404).end();
+      return;
+    }
+    const error2 = url2.searchParams.get("error");
+    const code = url2.searchParams.get("code");
+    const state = url2.searchParams.get("state");
+    if (error2) {
+      sendFailurePage(res);
+      rejectCode(new CliError(`Authorization failed: ${error2}`));
+    } else if (state !== expectedState) {
+      sendFailurePage(res);
+      rejectCode(new CliError("OAuth state mismatch \u2014 aborting."));
+    } else if (!code) {
+      sendFailurePage(res);
+      rejectCode(new CliError("No authorization code returned."));
+    } else {
+      res.writeHead(302, { location: `${apiBase}/cli/done` }).end();
+      resolveCode(code);
+    }
+  });
+  await new Promise((resolve2, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", resolve2);
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    server.close();
+    throw new CliError("Could not bind a loopback port for the sign-in redirect.");
+  }
+  const redirectUri = `http://127.0.0.1:${address.port}${CALLBACK_PATH}`;
+  return {
+    redirectUri,
+    waitForCode: () => codePromise,
+    // Idempotent: the flow closes on the way out of the wait and again if the
+    // bind lost a race, and close() on a stopped server emits an 'error' nobody
+    // is listening for.
+    close: () => {
+      if (server.listening) server.close();
+    }
+  };
+}
+var FAILURE_TITLE = "Sign-in couldn\u2019t be completed";
+var FAILURE_BODY = "Close this tab and start sign-in again in your agent.";
+var FAILURE_STYLES = `
+:root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --ink: #0b0d12; --muted: #4b5563; --eyebrow: #6b7280 }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0b0d12; --card: #14171f; --line: #262b36; --ink: #f4f5f7; --muted: #a1a8b5; --eyebrow: #8b93a1 }
+}
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem 1.25rem; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif }
+main { max-width: 26rem; width: 100%; box-sizing: border-box; padding: 2rem; border-radius: 14px; background: var(--card); border: 1px solid var(--line); text-align: center }
+.eyebrow { margin: 0 0 .75rem; font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; color: var(--eyebrow) }
+h1 { margin: 0; font-size: 1.375rem; line-height: 1.25; font-weight: 800 }
+p.body { margin: .5rem 0 0; font-size: .875rem; line-height: 1.6; color: var(--muted) }
+`.trim();
+function sendFailurePage(res) {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${FAILURE_TITLE} \xB7 Greenlight</title><style>${FAILURE_STYLES}</style></head><body><main><p class="eyebrow">Greenlight</p><h1>${FAILURE_TITLE}</h1><p class="body">${FAILURE_BODY}</p></main></body></html>`;
+  res.writeHead(400, { "content-type": "text/html; charset=utf-8" }).end(html);
+}
+
+// packages/cli/src/commands/sign-in-pairing.ts
+import { createHash as createHash4, randomBytes as randomBytes4 } from "node:crypto";
 var RESUME_POLL_MS = 4e4;
 var FULL_WAIT_MS = 10 * 60 * 1e3;
 var HEARTBEAT_MS = 1e4;
@@ -17710,7 +18063,7 @@ var CODE_LENGTH = 6;
 function pickSymbol() {
   const limit2 = 256 - 256 % CODE_ALPHABET.length;
   for (; ; ) {
-    const [byte] = randomBytes3(1);
+    const [byte] = randomBytes4(1);
     if (byte === void 0 || byte >= limit2) continue;
     const symbol = CODE_ALPHABET[byte % CODE_ALPHABET.length];
     if (symbol !== void 0) return symbol;
@@ -17731,28 +18084,7 @@ function clearThisHandshake(apiBase, pending) {
     note
   );
 }
-async function storedCredential(apiBase) {
-  const judged = loadOAuthRecord(apiBase).tokens?.access_token;
-  if (judged === void 0) return "none";
-  try {
-    await getAccessToken(apiBase);
-    return "usable";
-  } catch (err) {
-    if (!(err instanceof CliError) || err.code !== "auth.session_expired") return "unreachable";
-    return withAuthLock(
-      apiBase,
-      () => {
-        const current = loadOAuthRecord(apiBase).tokens?.access_token;
-        if (current !== void 0 && current !== judged) return "usable";
-        clearOAuthRecord(apiBase);
-        clearPending(apiBase);
-        return "dead";
-      },
-      note
-    );
-  }
-}
-function approvalPendingError(pending) {
+function approvalPendingError(pending, browserOpened) {
   const err = new CliError(
     `Waiting for approval of code ${pending.code}.`,
     "auth.approval_pending",
@@ -17763,7 +18095,10 @@ function approvalPendingError(pending) {
     approval_url: pending.approvalUrl,
     next_steps: [
       `If the Greenlight MCP tools are connected, call approveCliSession({ code: "${pending.code}" }).`,
-      "If not, open:",
+      ...browserOpened ? [
+        "A Greenlight sign-in tab may already be waiting on the person\u2019s screen. It can no longer finish this sign-in \u2014 the code below is the way through."
+      ] : [],
+      "If not, give the person this URL and this code:",
       pending.approvalUrl,
       `Type: ${pending.code}`,
       "Then run `greenlight login` again in the foreground."
@@ -17771,41 +18106,7 @@ function approvalPendingError(pending) {
   };
   return err;
 }
-async function cmdSignIn(apiBase, opts = {}) {
-  const credential = await storedCredential(apiBase);
-  if (credential === "usable") {
-    withAuthLock(apiBase, () => clearPending(apiBase), note);
-    note("Already signed in. Run `greenlight whoami` to confirm, or `greenlight logout` first.");
-    return;
-  }
-  if (credential === "unreachable") {
-    throw new CliError(
-      "Could not reach Greenlight to check the stored session. Check your connection and run `greenlight login` again."
-    );
-  }
-  if (credential === "dead") {
-    note("The stored session has expired or been revoked. Starting a new sign-in.");
-  }
-  const budgetMs = opts.timeoutMs !== void 0 ? opts.timeoutMs : opts.wait === true ? FULL_WAIT_MS : void 0;
-  const existing = withAuthLock(
-    apiBase,
-    () => {
-      const pending = loadPending(apiBase);
-      if (pending !== void 0 && pending.expiresAt <= Date.now()) {
-        clearPending(apiBase);
-        return void 0;
-      }
-      return pending;
-    },
-    note
-  );
-  if (existing === void 0) {
-    await create(apiBase);
-    return;
-  }
-  await resume(apiBase, existing, budgetMs ?? RESUME_POLL_MS);
-}
-async function create(apiBase) {
+async function createPairingHandshake(apiBase, opts) {
   const code = genPairingCode();
   const created = await jsonRequest("POST", `${apiBase}/api/cli/sessions`, {
     body: { pairing_code_hash: sha256(code), cli_version: CLI_VERSION }
@@ -17829,6 +18130,7 @@ async function create(apiBase) {
   const settled = withAuthLock(
     apiBase,
     () => {
+      releaseInflight(apiBase);
       if (hasCredential(apiBase)) return "already-signed-in";
       const peer = loadPending(apiBase);
       if (peer !== void 0 && peer.expiresAt > Date.now()) {
@@ -17844,14 +18146,17 @@ async function create(apiBase) {
     return;
   }
   const live = settled.pending;
+  if (opts.browserOpened) {
+    note("[greenlight] The sign-in tab did not finish in time. Use this code instead.");
+  }
   note(`
 Approve this sign-in at:
 ${live.approvalUrl}
 Code: ${live.code}
 `);
-  throw approvalPendingError(live);
+  throw approvalPendingError(live, opts.browserOpened);
 }
-async function resume(apiBase, pending, budgetMs) {
+async function resumePairing(apiBase, pending, budgetMs) {
   const deadline = Math.min(Date.now() + budgetMs, pending.expiresAt);
   let intervalMs = pending.intervalSeconds * 1e3;
   let deliveryMissed = false;
@@ -17904,7 +18209,7 @@ async function resume(apiBase, pending, budgetMs) {
     const accessToken = readString(polled.body, "access_token");
     const clientId = readString(polled.body, "client_id");
     if (accessToken !== void 0 && clientId !== void 0) {
-      commitCredential(apiBase, polled, accessToken, clientId);
+      commitPairedCredential(apiBase, polled, accessToken, clientId);
       note(`Signed in. The CLI credential is stored in ${credentialStoreLabel()}.`);
       return;
     }
@@ -17971,9 +18276,9 @@ async function resume(apiBase, pending, budgetMs) {
       3
     );
   }
-  throw approvalPendingError(pending);
+  throw approvalPendingError(pending, false);
 }
-function commitCredential(apiBase, polled, accessToken, clientId) {
+function commitPairedCredential(apiBase, polled, accessToken, clientId) {
   const body = asRecord(polled.body);
   withAuthLock(
     apiBase,
@@ -17998,6 +18303,134 @@ function raisedInterval(polled) {
   const details = asRecord(asRecord(polled.body)["details"]);
   const interval = details["interval"];
   return typeof interval === "number" && interval > 0 ? interval : 5;
+}
+
+// packages/cli/src/commands/sign-in-browser.ts
+var OBSERVE_POLL_MS = 500;
+var OBSERVE_HEARTBEAT_MS = 1e4;
+async function signInWithBrowserFirst(apiBase, deps = {}, resumeBudgetMs = RESUME_POLL_MS) {
+  let opening = withAuthLock(apiBase, () => inspect(apiBase, false), note);
+  if (opening.kind === "observe") {
+    opening = await waitOutHolder(apiBase, opening.holder, deps.holderWaitMs ?? RESUME_POLL_MS);
+  }
+  if (opening.kind === "signed-in") {
+    note("Already signed in \u2014 another `greenlight login` completed the sign-in.");
+    return;
+  }
+  if (opening.kind === "resume") {
+    await resumePairing(apiBase, opening.pending, resumeBudgetMs);
+    return;
+  }
+  try {
+    await mint(apiBase, deps, opening.browser);
+  } finally {
+    releaseInflightUnderLock(apiBase);
+  }
+}
+function inspect(apiBase, afterObserving) {
+  if (hasCredential(apiBase)) return { kind: "signed-in" };
+  const pending = loadPending(apiBase);
+  if (pending !== void 0 && pending.expiresAt > Date.now()) {
+    return { kind: "resume", pending };
+  }
+  const claim = claimInflight(apiBase, note);
+  if (!claim.claimed) return { kind: "observe", holder: claim.holder };
+  return { kind: "claimed", browser: claim.reclaimedFrom !== void 0 || !afterObserving };
+}
+async function waitOutHolder(apiBase, holder, budgetMs) {
+  note(
+    `[greenlight] Another greenlight login (pid ${holder.pid}) is signing in for this control plane. Waiting up to ${Math.round(budgetMs / 1e3)}s for it to finish.`
+  );
+  const deadline = Date.now() + budgetMs;
+  let lastHeartbeat = Date.now();
+  for (; ; ) {
+    await sleep(Math.min(OBSERVE_POLL_MS, Math.max(0, deadline - Date.now())));
+    const seen = withAuthLock(apiBase, () => inspect(apiBase, true), note);
+    if (seen.kind !== "observe") return seen;
+    if (Date.now() >= deadline) break;
+    if (Date.now() - lastHeartbeat >= OBSERVE_HEARTBEAT_MS) {
+      lastHeartbeat = Date.now();
+      note(
+        `[greenlight] Still waiting for the sign-in already in progress (${Math.max(0, Math.round((deadline - Date.now()) / 1e3))}s left).`
+      );
+    }
+  }
+  throw new CliError(
+    "Another `greenlight login` is still signing in for this control plane. Run `greenlight login` again.",
+    "auth.login_timed_out",
+    3
+  );
+}
+async function mint(apiBase, deps, browser) {
+  const opener = browser ? (deps.resolveOpener ?? resolveBrowserOpener)() : void 0;
+  if (opener === void 0) {
+    await createPairingHandshake(apiBase, { browserOpened: false });
+    return;
+  }
+  const launch = deps.launchOpener ?? launchBrowserOpener;
+  const attempt = await attemptBrowserSignIn(apiBase, {
+    windowMs: deps.browserWindowMs ?? BROWSER_WINDOW_MS,
+    launch: (url2) => launch(opener, url2)
+  });
+  if (attempt === "signed-in") return;
+  await createPairingHandshake(apiBase, { browserOpened: attempt === "tab-opened" });
+}
+
+// packages/cli/src/commands/sign-in.ts
+async function storedCredential(apiBase) {
+  const judged = loadOAuthRecord(apiBase).tokens?.access_token;
+  if (judged === void 0) return "none";
+  try {
+    await getAccessToken(apiBase);
+    return "usable";
+  } catch (err) {
+    if (!(err instanceof CliError) || err.code !== "auth.session_expired") return "unreachable";
+    return withAuthLock(
+      apiBase,
+      () => {
+        const current = loadOAuthRecord(apiBase).tokens?.access_token;
+        if (current !== void 0 && current !== judged) return "usable";
+        clearOAuthRecord(apiBase);
+        clearPending(apiBase);
+        return "dead";
+      },
+      note
+    );
+  }
+}
+async function cmdSignIn(apiBase, opts = {}, deps = {}) {
+  const credential = await storedCredential(apiBase);
+  if (credential === "usable") {
+    withAuthLock(apiBase, () => clearPending(apiBase), note);
+    note("Already signed in. Run `greenlight whoami` to confirm, or `greenlight logout` first.");
+    return;
+  }
+  if (credential === "unreachable") {
+    throw new CliError(
+      "Could not reach Greenlight to check the stored session. Check your connection and run `greenlight login` again."
+    );
+  }
+  if (credential === "dead") {
+    note("The stored session has expired or been revoked. Starting a new sign-in.");
+  }
+  const budgetMs = opts.timeoutMs !== void 0 ? opts.timeoutMs : opts.wait === true ? FULL_WAIT_MS : void 0;
+  const existing = withAuthLock(
+    apiBase,
+    () => {
+      const pending = loadPending(apiBase);
+      if (pending !== void 0 && pending.expiresAt <= Date.now()) {
+        clearPending(apiBase);
+        return void 0;
+      }
+      return pending;
+    },
+    note
+  );
+  if (existing === void 0) {
+    await signInWithBrowserFirst(apiBase, deps, budgetMs ?? RESUME_POLL_MS);
+    return;
+  }
+  await resumePairing(apiBase, existing, budgetMs ?? RESUME_POLL_MS);
 }
 
 // packages/cli/src/commands/whoami.ts
@@ -18029,176 +18462,6 @@ function resolveApiBase() {
     );
   }
   return base;
-}
-
-// packages/cli/src/oauth/login.ts
-import { spawn as spawn2 } from "node:child_process";
-import { randomBytes as randomBytes4 } from "node:crypto";
-import { createServer } from "node:http";
-import { URL as URL3 } from "node:url";
-var DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1e3;
-var HEARTBEAT_MS2 = 30 * 1e3;
-var CALLBACK_PATH = "/callback";
-function dropPendingHandshake(apiBase) {
-  withAuthLock(apiBase, () => clearPending(apiBase), note);
-}
-async function cmdLogin(apiBase, deps = {}, opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
-  const deadlineAt = Date.now() + timeoutMs;
-  let deadlineTimer;
-  const deadline = new Promise((_, reject) => {
-    deadlineTimer = setTimeout(() => reject(loginTimedOut()), timeoutMs);
-  });
-  if (deadlineTimer && typeof deadlineTimer.unref === "function") deadlineTimer.unref();
-  const fetchWithDeadline = (input, init) => {
-    const remaining = deadlineAt - Date.now();
-    if (remaining <= 0) return Promise.reject(loginTimedOut());
-    return fetch(input, { ...init, signal: AbortSignal.timeout(remaining) });
-  };
-  const state = randomBytes4(16).toString("base64url");
-  const loopback = await startLoopback(state, apiBase);
-  const provider = new GreenlightOAuthProvider(apiBase, loopback.redirectUri, state, {
-    staged: true
-  });
-  const client = provider.clientInformation();
-  if (client && !("redirect_uris" in client)) {
-    provider.invalidateCredentials("client");
-    provider.invalidateCredentials("tokens");
-  }
-  const open = deps.openBrowser ?? defaultOpenBrowser;
-  provider.onAuthorizationUrl = async (url2) => {
-    process.stderr.write(
-      `
-To sign in to Greenlight, open this URL in your browser:
-${url2.toString()}
-
-[greenlight] Waiting for the browser sign-in (up to ${Math.round(timeoutMs / 1e3)}s) \u2014 this command blocks until the round-trip completes. Run it in the background if you need the terminal; confirm with \`greenlight whoami\`.
-`
-    );
-    await open(url2);
-  };
-  const heartbeat = setInterval(
-    () => note("[greenlight] Still waiting for the browser sign-in\u2026"),
-    HEARTBEAT_MS2
-  );
-  if (typeof heartbeat.unref === "function") heartbeat.unref();
-  try {
-    const started = await Promise.race([
-      auth(provider, { serverUrl: apiBase, scope: OAUTH_SCOPE, fetchFn: fetchWithDeadline }),
-      deadline
-    ]);
-    if (started === "AUTHORIZED") {
-      provider.commitStaged();
-      dropPendingHandshake(apiBase);
-      note("Already signed in to Greenlight.");
-      return;
-    }
-    if (started !== "REDIRECT") throw new CliError(`Unexpected OAuth state: ${started}`);
-    const code = await Promise.race([loopback.waitForCode(), deadline]);
-    const finished = await Promise.race([
-      auth(provider, {
-        serverUrl: apiBase,
-        authorizationCode: code,
-        scope: OAUTH_SCOPE,
-        fetchFn: fetchWithDeadline
-      }),
-      deadline
-    ]);
-    if (finished !== "AUTHORIZED") throw new CliError("OAuth authorization did not complete.");
-    provider.commitStaged();
-    dropPendingHandshake(apiBase);
-    note(`Signed in to Greenlight. The CLI credential is stored in ${credentialStoreLabel()}.`);
-  } catch (err) {
-    if (!(err instanceof CliError) && Date.now() >= deadlineAt) throw loginTimedOut();
-    throw err;
-  } finally {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
-    clearInterval(heartbeat);
-    loopback.close();
-  }
-}
-function loginTimedOut() {
-  return new CliError(
-    "Timed out waiting for the browser sign-in. Run `greenlight login` again.",
-    "auth.login_timed_out",
-    3
-  );
-}
-async function startLoopback(expectedState, apiBase) {
-  let resolveCode;
-  let rejectCode;
-  const codePromise = new Promise((res, rej) => {
-    resolveCode = res;
-    rejectCode = rej;
-  });
-  codePromise.catch(() => {
-  });
-  const server = createServer((req, res) => {
-    const url2 = new URL3(req.url ?? "/", "http://127.0.0.1");
-    if (url2.pathname !== CALLBACK_PATH) {
-      res.writeHead(404).end();
-      return;
-    }
-    const error2 = url2.searchParams.get("error");
-    const code = url2.searchParams.get("code");
-    const state = url2.searchParams.get("state");
-    if (error2) {
-      sendFailurePage(res);
-      rejectCode(new CliError(`Authorization failed: ${error2}`));
-    } else if (state !== expectedState) {
-      sendFailurePage(res);
-      rejectCode(new CliError("OAuth state mismatch \u2014 aborting."));
-    } else if (!code) {
-      sendFailurePage(res);
-      rejectCode(new CliError("No authorization code returned."));
-    } else {
-      res.writeHead(302, { location: `${apiBase}/cli/done` }).end();
-      resolveCode(code);
-    }
-  });
-  await new Promise((resolve2, reject) => {
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", resolve2);
-  });
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    server.close();
-    throw new CliError("Could not bind a loopback port for the sign-in redirect.");
-  }
-  const redirectUri = `http://127.0.0.1:${address.port}${CALLBACK_PATH}`;
-  return {
-    redirectUri,
-    waitForCode: () => codePromise,
-    close: () => server.close()
-  };
-}
-var FAILURE_TITLE = "Sign-in couldn\u2019t be completed";
-var FAILURE_BODY = "Close this tab and start sign-in again in your agent.";
-var FAILURE_STYLES = `
-:root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --ink: #0b0d12; --muted: #4b5563; --eyebrow: #6b7280 }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0b0d12; --card: #14171f; --line: #262b36; --ink: #f4f5f7; --muted: #a1a8b5; --eyebrow: #8b93a1 }
-}
-body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem 1.25rem; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif }
-main { max-width: 26rem; width: 100%; box-sizing: border-box; padding: 2rem; border-radius: 14px; background: var(--card); border: 1px solid var(--line); text-align: center }
-.eyebrow { margin: 0 0 .75rem; font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; color: var(--eyebrow) }
-h1 { margin: 0; font-size: 1.375rem; line-height: 1.25; font-weight: 800 }
-p.body { margin: .5rem 0 0; font-size: .875rem; line-height: 1.6; color: var(--muted) }
-`.trim();
-function sendFailurePage(res) {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${FAILURE_TITLE} \xB7 Greenlight</title><style>${FAILURE_STYLES}</style></head><body><main><p class="eyebrow">Greenlight</p><h1>${FAILURE_TITLE}</h1><p class="body">${FAILURE_BODY}</p></main></body></html>`;
-  res.writeHead(400, { "content-type": "text/html; charset=utf-8" }).end(html);
-}
-function defaultOpenBrowser(url2) {
-  const u = url2.toString();
-  const [cmd, args] = process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", u]] : process.platform === "darwin" ? ["open", [u]] : ["xdg-open", [u]];
-  try {
-    const child = spawn2(cmd, args, { stdio: "ignore", detached: true, shell: false });
-    child.on("error", () => {
-    });
-    child.unref();
-  } catch {
-  }
 }
 
 // packages/cli/src/index.ts
