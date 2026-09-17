@@ -1,6 +1,6 @@
 ---
 name: connected-databases
-description: Builds, queries, and debugs Azure SQL connected databases through Greenlight's bounded SQL gateway. Use when a Greenlight-governed app needs Azure SQL data, a connected-database grant, schema discovery, parameterized SQL, paging, result conversion, or query-error handling.
+description: Builds, queries, and debugs connected databases (Azure SQL, Microsoft Fabric Warehouse) through Greenlight's bounded SQL gateway. Use when a Greenlight-governed app needs Azure SQL or Fabric Warehouse data, a connected-database grant, schema discovery, parameterized SQL, paging, result conversion, or query-error handling.
 ---
 
 # Connected Databases
@@ -9,11 +9,13 @@ Read the core [Greenlight skill](../greenlight/SKILL.md) in full before acting. 
 authorization, Knowledge, local-development, delivery, and user-communication rules. This skill
 adds the contract for Greenlight's connected-database gateway.
 
-## Query Azure SQL
+## Query a connected database
 
-A granted **Azure SQL connected database** (`auth_category: 'connected-database'` in
+A granted **connected database** (`auth_category: 'connected-database'` in
 `listGrantableIntegrations`) is proxied but is not an HTTP upstream. No SQL driver or connection
-string exists in the app. POST a parameterized statement to the integration's one query route:
+string exists in the app. Azure SQL and a Microsoft Fabric Warehouse share this contract exactly —
+both are T-SQL over the same gateway. POST a parameterized statement to the integration's one
+query route:
 
 ```
 POST ${GREENLIGHT_PROXY_URL}/<integration>/query
@@ -24,12 +26,12 @@ Authorization: Bearer ${GREENLIGHT_DATA_KEY}
 - **User attribution:** when calling `/query` while handling a user request, forward the inbound
   `X-Greenlight-Actor-Token` if present, following the core skill's _Preserve user attribution_
   rule.
-- **Parameterize, always.** `params` binds positionally to Azure SQL's `@p1…` placeholders. Values
+- **Parameterize, always.** `params` binds positionally to T-SQL's `@p1…` placeholders. Values
   are `string | number | boolean | null` only. Numeric integer params must fit JavaScript's
   safe-integer range; pass larger integers, exact decimals, dates, and binary as strings and
   `CAST`/`CONVERT` them in SQL. Never concatenate input into `sql`. A param cannot stand in for a
   table or column name, so strictly allowlist any identifier before adding it to the SQL text.
-- **Treat parameter types as inferred.** Azure SQL strings arrive as `nvarchar`, booleans as `bit`,
+- **Treat parameter types as inferred.** T-SQL strings arrive as `nvarchar`, booleans as `bit`,
   integer numbers as `int`/`bigint`, fractional numbers as `float`, and a bare `null` as
   `nvarchar`. Use an explicit bounded `CAST(@p1 AS …)`/`CONVERT` when the target column is
   `varchar`, decimal, temporal, or another exact type.

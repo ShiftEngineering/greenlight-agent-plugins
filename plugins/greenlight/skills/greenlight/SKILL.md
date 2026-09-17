@@ -889,8 +889,8 @@ surrounding Greenlight manifest, env, local-development, delivery, and verificat
 ### Connected databases
 
 Before discovering a schema, writing a query, or handling a connected-database error, read the
-bundled [connected-databases skill](../connected-databases/SKILL.md) in full. It owns the Azure SQL
-query route, parameterization, result limits and conversion, session isolation, paging, write
+bundled [connected-databases skill](../connected-databases/SKILL.md) in full. It owns the
+connected-database query route, parameterization, result limits and conversion, session isolation, paging, write
 ambiguity, and retry contract. Keep following this core skill for the surrounding Greenlight grant,
 Knowledge, local-development, delivery, and verification workflow.
 
