@@ -143,6 +143,16 @@ function metadataFromHeaders(key: string, headers: Headers): ObjectInfo {
   };
 }
 
+/** `BodyInit` is a DOM lib name this package does not pull in; mirrors what Node's fetch accepts. */
+type BodyInit =
+  | string
+  | ArrayBuffer
+  | Uint8Array
+  | Blob
+  | FormData
+  | URLSearchParams
+  | ReadableStream;
+
 function isReadableStream(body: BodyInit): boolean {
   return typeof ReadableStream === 'function' && body instanceof ReadableStream;
 }
@@ -211,7 +221,7 @@ export async function listObjects(
   await throwIfNotOk(res);
   const rec = asRecord(await res.json());
   const items = rec?.['items'];
-  if (!Array.isArray(items)) {
+  if (!rec || !Array.isArray(items)) {
     throw new StorageClientError({
       code: 'storage.upstream_failed',
       message: 'Malformed list page.',
