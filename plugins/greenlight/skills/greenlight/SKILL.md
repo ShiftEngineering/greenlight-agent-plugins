@@ -1051,7 +1051,7 @@ Use these tools together:
   must log handler errors for this to help: a 500 that only returns JSON to the client leaves
   nothing in the pod log.
 - `getApp({ app_id })` — deployed state, grant/resource status, latest pipeline result.
-- `getMetrics({ app_id })` — recent CPU, memory, restart counts to spot resource pressure.
+- `getMetrics({ app_id })` — recent CPU, memory, restart counts, requests/min, and 4xx/5xx error percent, to spot resource pressure or a failing endpoint.
 
 Verifying is for _you_; putting the result in front of the citizen developer is the separate,
 equally required step — see _Show your work_.
