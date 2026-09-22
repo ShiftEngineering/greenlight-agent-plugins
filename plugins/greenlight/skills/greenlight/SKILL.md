@@ -519,6 +519,7 @@ workloads:
     routes: ['/*']
     # omit compute: — baseline (25m/128Mi req, 500m/512Mi lim) fits most apps.
     # Declaring compute sets request=limit and reserves that capacity even when idle.
+    # Above 250m / 512Mi (org-tunable) raises a warn-level advisory; size on measured usage.
     # Add only after evidence (OOMKilled → memory; CPU throttle / slow starts → cpu).
     # Caps are org-set (default cpu<=2, memory<=4Gi). See Packaging → Sizing compute.
 
@@ -793,9 +794,11 @@ and route. The contract (some items pipeline-enforced, others recommended):
 - **Sizing compute.** Every app namespace has a `ResourceQuota` ceiling you neither set nor see —
   Greenlight sizes it to admit any workload up to the org compute cap (default cpu 2 / memory 4Gi),
   including the extra pod a rolling update runs. **Start with no `compute:` block** — the baseline
-  (25m CPU / 128Mi memory requests, 500m / 512Mi limits) fits static UIs and typical Node/Python
-  APIs. Declaring `compute:` sets **request = limit** (Guaranteed QoS), so a copy-pasted
-  `500m`/`512Mi` reserves half a core even when the app is idle. Raise only on evidence —
+  (25m CPU / 128Mi memory requests, 500m / 512Mi limits) is right for almost every app: static UIs
+  and typical Node/Python APIs alike. Declaring `compute:` sets **request = limit** (Guaranteed
+  QoS), so the value you write is **reserved against the cluster for as long as the app is
+  deployed, whether the app uses it or not** — a copy-pasted `500m`/`512Mi` holds half a core while
+  the app idles, and nobody else can schedule it. Raise only on evidence —
   `OOMKilled` (raise `memory`), sustained CPU throttling or slow responses (raise `cpu`), a cold
   start failing the readiness probe — one step at a time:
 
@@ -804,6 +807,16 @@ and route. The contract (some items pipeline-enforced, others recommended):
   | Static / mostly client UI                    | omit `compute:` (or `cpu: 25m` / `memory: 128Mi` if you must set it) |
   | Typical API + light DB                       | omit `compute:`                                                      |
   | Heavier server work (PDF, scraping, fan-out) | `cpu: 100m–250m` / `memory: 256Mi–512Mi`                             |
+
+  **A `compute:` block is justified by a measured need, never by what a neighbouring repo declares.**
+  Copying one propagates a reservation nobody sized. Above `cpu: 250m` or `memory: 512Mi` the run
+  raises `manifest.workload_compute_advisory` — a warning, not a blocker: it never stops a merge,
+  and it reaches the human who has to justify the number. Those are the defaults; an org can move
+  them, so read its configured `workload_compute_advisory` caps from `getPolicies` rather than
+  trusting the numbers here — an untuned org carries no `config` on that check, which means the
+  defaults above are in force. Check the size against reality with `getMetrics(app_id)`, which
+  returns `cpu_reserved_m` / `cpu_used_m` and `memory_reserved_mb` / `memory_usage_mb`; if usage
+  sits far under the reservation, lower it.
 
   Any value within the cap always deploys; a value above it is rejected at PR time
   (`POLICY_VIOLATION`, `workload-compute-limit`), never at runtime. Full reference:
