@@ -16459,7 +16459,8 @@ var GROUP_POLL_MS = 50;
 var INTEGRATION_LABEL = {
   live_raw: "live (raw, injected)",
   live_proxy: "live (proxy token)",
-  fixtures_user_delegated: "fixtures (user-delegated)"
+  fixtures_user_delegated: "fixtures (user-delegated)",
+  denied_group_requirement: "denied (not in a required group)"
 };
 var RESOURCE_LABEL = {
   live_proxy: "live (proxy token)",
