@@ -17325,7 +17325,7 @@ var MCP_COMMANDS = {
         field: "expected_head_sha",
         type: "string",
         required: true,
-        describe: "PR head commit SHA observed passing via `pipeline --wait`. Merge fails closed if the PR has moved past it or that SHA has not passed."
+        describe: "PR head commit SHA observed passing via `pipeline --wait`. Merge fails closed if the PR has moved past it, that SHA has not passed, or the branch is behind its base (`scm.branch_behind`: merge the base in, wait for the new head to pass, then retry)."
       },
       method: {
         field: "method",

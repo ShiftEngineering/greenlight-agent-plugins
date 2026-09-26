@@ -326,7 +326,11 @@ The standard new-app loop:
    through Greenlight with `mergePullRequest({ app_id, pull_request_number, expected_head_sha:
 commit_sha })` or `greenlight pr merge` — **never** `gh pr merge` or the GitHub API. Merge fails
    closed if the PR has moved past that SHA (a new push landed) or that SHA hasn't passed; re-poll
-   `getPipelineRun` on the new head and retry. **The merge is the apply trigger** — it provisions
+   `getPipelineRun` on the new head and retry. If it fails with `scm.branch_behind`, `main` moved
+   on after you branched (another PR landed, or Greenlight updated the generated workflow): merge
+   `origin/main` into your branch (see _Sync with `main` before editing_), resolve any conflicts,
+   push, wait for the new head to pass, and merge that SHA. An empty retrigger commit does
+   not help, because the branch is still behind. **The merge is the apply trigger** — it provisions
    declared resources, reconciles grants, builds and rolls out the workload. Don't stop to ask the
    user whether to merge: if they asked for the change to go live, a green pipeline is your signal to
    proceed.
@@ -993,7 +997,8 @@ yourself. The governed change request then goes through MCP:
   has no commits to propose. Pass `app_id` and the head branch; Greenlight resolves the repo.
 - **Merge** with `mergePullRequest` only after you have observed a passing pipeline for the exact
   head SHA — pass it as `expected_head_sha`; merge fails closed if the PR moved past it or that SHA
-  didn't pass. Direct pushes to `main` are blocked by branch protection.
+  didn't pass, and with `scm.branch_behind` if `main` moved on since you branched. Direct pushes to
+  `main` are blocked by branch protection.
 
 Do **not** use `gh`, the GitHub API, or any other path to open or merge a PR — the change must flow
 through Greenlight so it is audited and policy-gated.
