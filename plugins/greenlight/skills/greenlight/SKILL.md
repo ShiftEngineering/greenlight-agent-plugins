@@ -260,11 +260,14 @@ CLI-only helpers: `greenlight doctor`, `greenlight whoami`, `greenlight logout`.
 detail from `greenlight help` or `greenlight <command> --help` — never guess.
 
 **Write payloads use stdin/file, never argv.** Env values and Markdown/PR bodies can contain
-secrets or multiline text, so the CLI refuses `--value` and `--body`:
+secrets or multiline text, so the CLI refuses `--value` and `--body`. Required payloads (`env set`,
+`knowledge propose`, `feedback`) read a piped value. Optional ones (`curl`, `pr open`) ignore stdin
+unless you pass `--body-file -`:
 
 ```bash
 printf '%s' "$VALUE" | greenlight env set --app <id> --name API_KEY --sensitive --reason "rotate key"
 greenlight pr open --app <id> --head feature/demo --title "Ship demo" --body-file /tmp/pr-body.md
+printf '%s' '{"name":"Ada"}' | greenlight curl --app <id> --path /api/users --method POST --body-file -
 greenlight knowledge propose --scope app --app <id> --topic schema-notes --title "Schema notes" \
   --rationale "Future agents need this" --body-file /tmp/schema-notes.md
 ```
@@ -1046,9 +1049,9 @@ Use these tools together:
 --app <id> --path <p>` — the default response-level check.** It makes an authenticated request
   to the deployed app as you and returns status, headers, body, timing, and whether the request
   reached the app. Use it to assert the exact API or server behavior requested; request headers and
-  bodies on the CLI come from `--headers-file` / stdin / `--body-file`, never argv. Platform admins
-  may use `as_user` / `--as-user` to reproduce another same-org user's view; the selected user must
-  still have access to the app. On `app.unreachable`, inspect `details.hit_app`, then check
+  bodies on the CLI come from `--headers-file` / `--body-file` (`-` for stdin), never argv.
+  Platform admins may use `as_user` / `--as-user` to reproduce another same-org user's view; the
+  selected user must still have access to the app. On `app.unreachable`, inspect `details.hit_app`, then check
   `getApp` and `getLogs` before retrying; other roles must not impersonate.
 - **`getAppPreviewUrl({ app_id, path? })` — or `greenlight preview --app <id> [--path <p>]` — for
   browser behavior.** Mints a one-time URL you open in your own browser tool (IDE

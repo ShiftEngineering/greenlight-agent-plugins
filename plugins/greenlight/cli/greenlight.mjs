@@ -16105,37 +16105,67 @@ import { readFileSync as readFileSync3 } from "node:fs";
 // packages/cli/src/cli/payload.ts
 import { readFileSync as readFileSync2 } from "node:fs";
 var PAYLOAD_FILE_FIELD = "__payload_file";
+var STDIN_FILE = "-";
+var DEFAULT_STDIN_TIMEOUT_MS = 1e4;
 function payloadFileField() {
   return PAYLOAD_FILE_FIELD;
 }
 async function resolvePayload(parsed, spec, deps = {}) {
   const file = parsed[PAYLOAD_FILE_FIELD];
+  if (file === STDIN_FILE) {
+    return payloadValue(spec, stripOneTrailingNewline(await readStdin(deps)));
+  }
   if (typeof file === "string") {
     try {
-      const value2 = (deps.readFile ?? defaultReadFile)(file);
-      if (spec.required && value2 === "") throw payloadEmptyError(spec);
-      return { [spec.field]: value2 };
+      const value = (deps.readFile ?? defaultReadFile)(file);
+      if (spec.required && value === "") throw payloadEmptyError(spec);
+      return { [spec.field]: value };
     } catch (err) {
       if (err instanceof CliError) throw err;
       throw payloadReadError(spec, err);
     }
   }
-  const stdinIsTTY = (deps.stdinIsTTY ?? defaultStdinIsTTY)();
-  if (stdinIsTTY) {
-    if (!spec.required) return {};
-    const name = spec.displayName ?? spec.field;
-    const err = new CliError(
-      `Pipe ${name} to stdin or use --${spec.fileFlag} <path>.`,
-      "validation.body_invalid",
-      2
-    );
-    err.details = { field: spec.field };
-    throw err;
+  if (!spec.required) return {};
+  if ((deps.stdinIsTTY ?? defaultStdinIsTTY)()) throw payloadMissingError(spec);
+  const timeoutMs = deps.stdinTimeoutMs ?? DEFAULT_STDIN_TIMEOUT_MS;
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(payloadTimeoutError(spec, timeoutMs)), timeoutMs);
+  });
+  try {
+    const raw = await Promise.race([readStdin(deps), deadline]);
+    return payloadValue(spec, stripOneTrailingNewline(raw));
+  } finally {
+    clearTimeout(timer);
   }
-  const value = stripOneTrailingNewline(await (deps.readStdin ?? defaultReadStdin)());
-  if (spec.required && value === "") throw payloadEmptyError(spec);
-  if (!spec.required && value === "") return {};
-  return { [spec.field]: value };
+}
+function readStdin(deps) {
+  return (deps.readStdin ?? defaultReadStdin)();
+}
+function payloadValue(spec, value) {
+  if (value !== "") return { [spec.field]: value };
+  if (spec.required) throw payloadEmptyError(spec);
+  return {};
+}
+function payloadMissingError(spec) {
+  const name = spec.displayName ?? spec.field;
+  const err = new CliError(
+    `Pipe ${name} to stdin or use --${spec.fileFlag} <path>.`,
+    "validation.body_invalid",
+    2
+  );
+  err.details = { field: spec.field };
+  return err;
+}
+function payloadTimeoutError(spec, timeoutMs) {
+  const name = spec.displayName ?? spec.field;
+  const err = new CliError(
+    `No ${name} reached EOF on stdin within ${timeoutMs / 1e3}s. Pipe ${name} to stdin and close it, or use --${spec.fileFlag} <path> (--${spec.fileFlag} - waits for stdin).`,
+    "validation.body_invalid",
+    2
+  );
+  err.details = { field: spec.field };
+  return err;
 }
 function payloadEmptyError(spec) {
   const name = spec.displayName ?? spec.field;
@@ -16174,6 +16204,12 @@ function stripOneTrailingNewline(value) {
 
 // packages/cli/src/commands/curl.ts
 var HEADERS_FILE_FIELD = "__headers_file";
+var CURL_PAYLOAD = {
+  field: "body",
+  fileFlag: "body-file",
+  required: false,
+  describe: "HTTP request body."
+};
 var CURL_FLAGS = {
   app: {
     field: "app_id",
@@ -16203,7 +16239,7 @@ var CURL_FLAGS = {
   "body-file": {
     field: payloadFileField(),
     type: "string",
-    describe: "Read the optional request body from a file or fd; otherwise stdin."
+    describe: "Read the optional request body from a file or fd; `-` reads stdin."
   },
   "follow-redirects": {
     field: "follow_redirects",
@@ -16224,19 +16260,7 @@ async function cmdCurl(apiBase, args, global, deps = {}) {
   if (typeof headersFile === "string") {
     input["headers"] = readHeaders(headersFile, deps.readHeadersFile);
   }
-  Object.assign(
-    input,
-    await resolvePayload(
-      parsed,
-      {
-        field: "body",
-        fileFlag: "body-file",
-        required: false,
-        describe: "HTTP request body."
-      },
-      deps
-    )
-  );
+  Object.assign(input, await resolvePayload(parsed, CURL_PAYLOAD, deps));
   delete input[payloadFileField()];
   const result = await callTool(apiBase, "curlApp", input, { debug: global.debug });
   emit(result.structuredContent);
@@ -17418,7 +17442,7 @@ function flagsWithPayloadFile(spec) {
     [spec.payload.fileFlag]: {
       field: payloadFileField(),
       type: "string",
-      describe: `Read ${spec.payload.field} from a file or fd.`
+      describe: `Read ${spec.payload.field} from a file or fd; \`-\` reads stdin.`
     }
   };
 }
@@ -17523,11 +17547,10 @@ function commandHelp(name, spec) {
     lines.push(`  --${flag}${value}${required2}`.padEnd(PAD) + `  ${f.describe ?? ""}`);
   }
   if (spec.payload) {
-    const required2 = spec.payload.required ? " (required)" : "";
+    const { fileFlag, required: required2 } = spec.payload;
     const field = spec.payload.displayName ?? spec.payload.field;
-    lines.push(
-      `  ${field} from stdin or --${spec.payload.fileFlag} <path>${required2}`.padEnd(PAD) + `  ${spec.payload.describe}`
-    );
+    const source = required2 ? `stdin or --${fileFlag} <path|-> (required)` : `--${fileFlag} <path|->`;
+    lines.push(`  ${field} from ${source}`.padEnd(PAD) + `  ${spec.payload.describe}`);
   }
   return lines.join("\n");
 }
