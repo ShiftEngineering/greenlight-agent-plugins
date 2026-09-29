@@ -16550,40 +16550,6 @@ function spawnChild(devCommand, contract) {
   const [cmd, ...args] = devCommand;
   if (cmd === void 0) throw new CliError("Usage: greenlight run -- <command> [args\u2026]");
   const posix = process.platform !== "win32";
-  const child = spawn(cmd, args, {
-    stdio: "inherit",
-    env: { ...process.env, ...contract.env },
-    shell: !posix,
-    // POSIX: the child leads its own process group, so termination reaches its
-    // whole tree (`npm run dev` → node), not just the direct child.
-    detached: posix
-  });
-  const shownCmd = cmd.replace(new RegExp("\\p{Cc}", "gu"), " ");
-  child.on("spawn", () => {
-    process.stderr.write(`[greenlight] ready \u2014 \`${shownCmd}\` is running (pid ${child.pid}).
-`);
-  });
-  const killTree = (sig) => {
-    if (child.pid === void 0) return;
-    if (posix) {
-      try {
-        process.kill(-child.pid, sig);
-        return;
-      } catch {
-      }
-    }
-    child.kill(sig);
-  };
-  const groupAlive = () => {
-    if (!posix || child.pid === void 0) return false;
-    try {
-      process.kill(-child.pid, 0);
-      return true;
-    } catch (err) {
-      return err.code === "EPERM";
-    }
-  };
-  const restartTimer = scheduleExpiryNotice(contract.expires_at, () => child.killed === false);
   return new Promise((resolvePromise, reject) => {
     let settled = false;
     let terminating = false;
@@ -16591,6 +16557,7 @@ function spawnChild(devCommand, contract) {
     let pendingExit;
     let escalation;
     let groupPoll;
+    let restartTimer = null;
     const settle = (result) => {
       if (settled) return;
       settled = true;
@@ -16611,6 +16578,26 @@ function spawnChild(devCommand, contract) {
     const onSigterm = forward("SIGTERM");
     process.on("SIGINT", onSigint);
     process.on("SIGTERM", onSigterm);
+    let child;
+    try {
+      child = spawn(cmd, args, {
+        stdio: "inherit",
+        env: { ...process.env, ...contract.env },
+        shell: !posix,
+        // POSIX: the child leads its own process group, so termination reaches its
+        // whole tree (`npm run dev` → node), not just the direct child.
+        detached: posix
+      });
+    } catch (err) {
+      cleanup();
+      throw err;
+    }
+    restartTimer = scheduleExpiryNotice(contract.expires_at, () => child.killed === false);
+    const shownCmd = cmd.replace(new RegExp("\\p{Cc}", "gu"), " ");
+    child.on("spawn", () => {
+      process.stderr.write(`[greenlight] ready \u2014 \`${shownCmd}\` is running (pid ${child.pid}).
+`);
+    });
     child.on("error", (err) => {
       if (settled) return;
       settled = true;
@@ -16631,6 +16618,26 @@ function spawnChild(devCommand, contract) {
       }
       settle(result);
     });
+    function killTree(sig) {
+      if (child.pid === void 0) return;
+      if (posix) {
+        try {
+          process.kill(-child.pid, sig);
+          return;
+        } catch {
+        }
+      }
+      child.kill(sig);
+    }
+    function groupAlive() {
+      if (!posix || child.pid === void 0) return false;
+      try {
+        process.kill(-child.pid, 0);
+        return true;
+      } catch (err) {
+        return err.code === "EPERM";
+      }
+    }
     function cleanup() {
       if (restartTimer) clearTimeout(restartTimer);
       if (escalation) clearTimeout(escalation);
