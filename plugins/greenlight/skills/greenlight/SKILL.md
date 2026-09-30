@@ -763,7 +763,7 @@ integration additionally reserves its own env-var name per-app. User-declared na
 ### Values inject at runtime, not at build time
 
 Greenlight-managed values land in the **running pod**, never in the CI image build — `docker build`
-receives only a registry push token, never vault values. So a value set through `envSet` is
+receives only a short-lived registry credential, never vault values. So a value set through `envSet` is
 available from `process.env` at runtime but **not** during the build.
 
 This is why build-time inlining of a Greenlight value into a client bundle (`NEXT_PUBLIC_*`,
