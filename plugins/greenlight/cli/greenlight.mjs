@@ -17818,7 +17818,7 @@ function onPath(command) {
   }
   return void 0;
 }
-function launchBrowserOpener(opener, url2) {
+function launchBrowserOpener(opener, url2, boundMs = LAUNCH_BOUND_MS) {
   return new Promise((resolve2) => {
     let child;
     let settled = false;
@@ -17831,7 +17831,7 @@ function launchBrowserOpener(opener, url2) {
     const timer = setTimeout(() => {
       child?.unref();
       finish("started");
-    }, LAUNCH_BOUND_MS);
+    }, boundMs);
     if (typeof timer.unref === "function") timer.unref();
     try {
       child = spawn2(opener.path, [...opener.leadingArgs, url2.toString()], {
@@ -18202,6 +18202,11 @@ async function resumePairing(apiBase, pending, budgetMs) {
       `[greenlight] Still waiting for approval of ${pending.code} (${Math.max(0, Math.round((deadline - Date.now()) / 1e3))}s left).`
     );
   };
+  const waitForNextPoll = async () => {
+    const left = deadline - Date.now();
+    await sleep(Math.max(0, Math.min(intervalMs, left)));
+    return intervalMs < left;
+  };
   for (; ; ) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
@@ -18212,7 +18217,7 @@ async function resumePairing(apiBase, pending, budgetMs) {
       });
     } catch {
       heartbeat();
-      await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+      if (!await waitForNextPoll()) break;
       continue;
     }
     if (polled.status === 429) {
@@ -18232,7 +18237,7 @@ async function resumePairing(apiBase, pending, budgetMs) {
         return;
       }
       heartbeat();
-      await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+      if (!await waitForNextPoll()) break;
       continue;
     }
     const body = asRecord(polled.body);
@@ -18277,7 +18282,7 @@ async function resumePairing(apiBase, pending, budgetMs) {
       }
     }
     heartbeat();
-    await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+    if (!await waitForNextPoll()) break;
   }
   if (deliveryMissed) {
     const settled = withAuthLock(
@@ -18299,7 +18304,7 @@ async function resumePairing(apiBase, pending, budgetMs) {
       3
     );
   }
-  if (Date.now() >= pending.expiresAt) {
+  if (deadline >= pending.expiresAt) {
     clearThisHandshake(apiBase, pending);
     throw new CliError(
       "That sign-in request expired before it was approved. Run `greenlight login` again for a fresh code.",
