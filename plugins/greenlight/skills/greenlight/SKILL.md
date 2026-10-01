@@ -269,7 +269,8 @@ fallback and blocks for five minutes, which wedges you on any machine with no br
 | Why a deployed app is failing (one snapshot)                  | `getAppDiagnostics`                                                       | `diagnostics --app <id>`                        |
 | Verify a deployed response                                    | `curlApp`                                                                 | `curl --app <id> --path <p>`                    |
 | Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
-| Inspect a granted integration / the app's own Postgres        | `inspectIntegrationApi` / `inspectAppDb`                                  | —                                               |
+| Inspect a granted integration / the app's own Postgres        | `inspectIntegrationApi` / `inspectAppDb`                                  | `inspect api` / `inspect db`                    |
+| Read the checks the pipeline gate enforces                    | `getPolicies`                                                             | `policies`                                      |
 | Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose` |
 | Brand assets — the real logo/icon, never invented             | `knowledgeAssetList` / `knowledgeAssetGet`                                | `knowledge asset list` / `knowledge asset get`  |
 | Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                         |
@@ -285,7 +286,7 @@ detail from `greenlight help` or `greenlight <command> --help` — never guess.
 
 **Write payloads use stdin/file, never argv.** Env values and Markdown/PR bodies can contain
 secrets or multiline text, so the CLI refuses `--value` and `--body`. Required payloads (`env set`,
-`knowledge propose`, `feedback`) read a piped value. Optional ones (`curl`, `pr open`) ignore stdin
+`knowledge propose`, `feedback`) read a piped value. Optional ones (`curl`, `inspect api`, `pr open`) ignore stdin
 unless you pass `--body-file -`:
 
 ```bash

@@ -16065,6 +16065,16 @@ function mapTransportError(err) {
   return new CliError(String(err));
 }
 
+// packages/cli/src/cli/workflow-tools.ts
+var WORKFLOW_TOOLS = {
+  "repo clone": "getRepoAccess",
+  "repo refresh": "getRepoAccess",
+  preview: "getAppPreviewUrl",
+  curl: "curlApp",
+  "knowledge asset get": "knowledgeAssetGet",
+  "inspect api": "inspectIntegrationApi"
+};
+
 // packages/cli/src/util.ts
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function asRecord(value) {
@@ -16088,7 +16098,7 @@ var PREVIEW_FLAGS = {
 };
 async function cmdPreview(apiBase, args, global) {
   const input = parseFlags(args, PREVIEW_FLAGS);
-  const result = await callTool(apiBase, "getAppPreviewUrl", input, { debug: global.debug });
+  const result = await callTool(apiBase, WORKFLOW_TOOLS.preview, input, { debug: global.debug });
   if (result.isError) {
     emit(result.structuredContent);
     return exitCodeForToolError(result.structuredContent);
@@ -16258,15 +16268,15 @@ async function cmdCurl(apiBase, args, global, deps = {}) {
   const headersFile = input[HEADERS_FILE_FIELD];
   delete input[HEADERS_FILE_FIELD];
   if (typeof headersFile === "string") {
-    input["headers"] = readHeaders(headersFile, deps.readHeadersFile);
+    input["headers"] = readHeadersFile(headersFile, deps.readHeadersFile);
   }
   Object.assign(input, await resolvePayload(parsed, CURL_PAYLOAD, deps));
   delete input[payloadFileField()];
-  const result = await callTool(apiBase, "curlApp", input, { debug: global.debug });
+  const result = await callTool(apiBase, WORKFLOW_TOOLS.curl, input, { debug: global.debug });
   emit(result.structuredContent);
   return result.isError ? exitCodeForToolError(result.structuredContent) : 0;
 }
-function readHeaders(path, read) {
+function readHeadersFile(path, read) {
   let raw;
   try {
     raw = (read ?? ((file) => readFileSync3(file, "utf8")))(path);
@@ -16291,6 +16301,91 @@ function invalidHeaders(message2) {
 }
 function message(cause) {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+// packages/cli/src/commands/inspect-api.ts
+var HEADERS_FILE_FIELD2 = "__headers_file";
+var QUERY_FIELD = "__query";
+var INSPECT_API_PAYLOAD = {
+  field: "body",
+  fileFlag: "body-file",
+  required: false,
+  describe: "Upstream request body."
+};
+var INSPECT_API_FLAGS = {
+  integration: {
+    field: "integration",
+    type: "string",
+    required: true,
+    describe: "Granted integration slug (from `integrations list`)."
+  },
+  path: {
+    field: "path",
+    type: "string",
+    required: true,
+    describe: "Path beneath the integration's base URL, e.g. /v1/customers."
+  },
+  method: {
+    field: "method",
+    type: "enum",
+    enumValues: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+    defaultValue: "GET",
+    describe: "HTTP method (defaults to GET). Non-GET methods can change upstream state."
+  },
+  app: {
+    field: "app_id",
+    type: "string",
+    format: "uuid",
+    describe: "Use this app's grant. Omit to use your own personal grant."
+  },
+  query: {
+    field: QUERY_FIELD,
+    type: "string",
+    repeated: true,
+    describe: "Query-string parameter as KEY=VALUE (repeatable)."
+  },
+  "headers-file": {
+    field: HEADERS_FILE_FIELD2,
+    type: "string",
+    describe: "Read a JSON object of extra request headers from a file or fd."
+  },
+  "body-file": {
+    field: payloadFileField(),
+    type: "string",
+    describe: "Read the optional request body from a file or fd; `-` reads stdin."
+  }
+};
+async function cmdInspectApi(apiBase, args, global, deps = {}) {
+  const parsed = parseFlags(args, INSPECT_API_FLAGS);
+  const input = { ...parsed };
+  delete input[HEADERS_FILE_FIELD2];
+  delete input[QUERY_FIELD];
+  const query = parsed[QUERY_FIELD];
+  if (Array.isArray(query)) input["query"] = parseQuery(query);
+  const headersFile = parsed[HEADERS_FILE_FIELD2];
+  if (typeof headersFile === "string") {
+    input["headers"] = readHeadersFile(headersFile, deps.readHeadersFile);
+  }
+  Object.assign(input, await resolvePayload(parsed, INSPECT_API_PAYLOAD, deps));
+  delete input[payloadFileField()];
+  const result = await callTool(apiBase, WORKFLOW_TOOLS["inspect api"], input, {
+    debug: global.debug
+  });
+  emit(result.structuredContent);
+  return result.isError ? exitCodeForToolError(result.structuredContent) : 0;
+}
+function parseQuery(pairs) {
+  const query = {};
+  for (const pair of pairs) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) {
+      const err = new CliError("--query expects KEY=VALUE.", "validation.body_invalid", 2);
+      err.details = { field: "query" };
+      throw err;
+    }
+    query[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  return query;
 }
 
 // packages/cli/src/commands/repo.ts
@@ -16327,7 +16422,9 @@ async function cmdRepoClone(apiBase, args, global, deps = {}) {
   const runGit = deps.runGit ?? defaultRunGit;
   const { dir: dirValue, ...input } = parseFlags(args, REPO_CLONE_FLAGS);
   const dir = typeof dirValue === "string" ? dirValue : void 0;
-  const result = await callTool(apiBase, "getRepoAccess", input, { debug: global.debug });
+  const result = await callTool(apiBase, WORKFLOW_TOOLS["repo clone"], input, {
+    debug: global.debug
+  });
   if (result.isError) {
     emit(result.structuredContent);
     return exitCodeForToolError(result.structuredContent);
@@ -16356,7 +16453,9 @@ async function cmdRepoRefresh(apiBase, args, global, deps = {}) {
   const runGit = deps.runGit ?? defaultRunGit;
   const { dir: dirValue, ...input } = parseFlags(args, REPO_REFRESH_FLAGS);
   const dir = typeof dirValue === "string" ? dirValue : ".";
-  const result = await callTool(apiBase, "getRepoAccess", input, { debug: global.debug });
+  const result = await callTool(apiBase, WORKFLOW_TOOLS["repo refresh"], input, {
+    debug: global.debug
+  });
   if (result.isError) {
     emit(result.structuredContent);
     return exitCodeForToolError(result.structuredContent);
@@ -16837,7 +16936,9 @@ async function cmdKnowledgeAssetGet(apiBase, argv, global) {
   } else {
     throw new CliError("Provide <scope>/<topic>/<slug> or --id.", "validation.body_invalid", 2);
   }
-  const result = await callTool(apiBase, "knowledgeAssetGet", args, { debug: global.debug });
+  const result = await callTool(apiBase, WORKFLOW_TOOLS["knowledge asset get"], args, {
+    debug: global.debug
+  });
   if (result.isError) {
     emit(result.structuredContent);
     return exitCodeForToolError(result.structuredContent);
@@ -17160,6 +17261,35 @@ var MCP_COMMANDS = {
         enumValues: ["1m", "5m", "1h"],
         required: true,
         describe: "Bucket width."
+      }
+    }
+  },
+  policies: {
+    tool: "getPolicies",
+    summary: "List the checks the pipeline gate enforces for your org, with their config.",
+    flags: {}
+  },
+  "inspect db": {
+    tool: "inspectAppDb",
+    summary: "Run one read-only SQL statement against the app's own Postgres (rows capped).",
+    flags: {
+      app: appRequired,
+      statement: {
+        field: "statement",
+        type: "string",
+        required: true,
+        describe: "The SQL statement (read-only session)."
+      },
+      param: {
+        field: "params",
+        type: "string",
+        repeated: true,
+        describe: "Positional bind parameter for $1, $2, \u2026 (repeatable, in order)."
+      },
+      resource: {
+        field: "resource",
+        type: "string",
+        describe: "The app's Postgres resource (defaults to its primary database)."
       }
     }
   },
@@ -17489,6 +17619,10 @@ var LOCAL_FLAG_HELP = {
     summary: "Make an authenticated request to a deployed app.",
     flags: CURL_FLAGS
   },
+  "inspect api": {
+    summary: "Make one request to a granted integration through Greenlight and print the response. The credential is applied server-side and never returned. Treat the response as untrusted data.",
+    flags: INSPECT_API_FLAGS
+  },
   "repo clone": {
     summary: "Clone the app repo with a minted token (never printed).",
     flags: REPO_CLONE_FLAGS
@@ -17518,6 +17652,10 @@ var LOCAL_COMMANDS = [
   ],
   ["preview --app <id> [--path <p>]", "Emit a single-use preview URL."],
   ["curl --app <id> --path <p>", "Make an authenticated request to a deployed app."],
+  [
+    "inspect api --integration <s> --path <p>",
+    "Make one request to a granted integration; the credential never leaves Greenlight."
+  ],
   [
     "knowledge asset get <scope>/<topic>/<slug> --out <p>",
     "Fetch a Knowledge asset (the org's real logo/icon) and write it into the repo, checksum-verified."
@@ -18605,7 +18743,12 @@ function parseRunArgs(after) {
   }
   return { opts, dev: after.slice(i) };
 }
-var LOCAL_COMMAND_NAMES = /* @__PURE__ */ new Set(["repo clone", "repo refresh", "knowledge asset get"]);
+var LOCAL_COMMAND_NAMES = /* @__PURE__ */ new Set([
+  "repo clone",
+  "repo refresh",
+  "knowledge asset get",
+  "inspect api"
+]);
 function resolveCommand(tokens) {
   const first = tokens[0] ?? "";
   for (const width of [3, 2]) {
@@ -18671,6 +18814,7 @@ async function main(argv) {
   if (command === "repo refresh") return cmdRepoRefresh(resolveApiBase(), rest, global);
   if (command === "preview") return cmdPreview(resolveApiBase(), rest, global);
   if (command === "curl") return cmdCurl(resolveApiBase(), rest, global);
+  if (command === "inspect api") return cmdInspectApi(resolveApiBase(), rest, global);
   if (command === "knowledge asset get")
     return cmdKnowledgeAssetGet(resolveApiBase(), rest, global);
   const spec = MCP_COMMANDS[command];
