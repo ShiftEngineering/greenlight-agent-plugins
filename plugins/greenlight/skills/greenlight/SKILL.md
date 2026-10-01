@@ -266,6 +266,7 @@ fallback and blocks for five minutes, which wedges you on any machine with no br
 | Open / merge a PR                                             | `createPullRequest` / `mergePullRequest`                                  | `pr open` / `pr merge`                          |
 | Pipeline status (`--wait` to poll, `detail: 'full'` to debug) | `getPipelineRun`                                                          | `pipeline --app <id> …`                         |
 | Pod logs                                                      | `getLogs`                                                                 | `logs --app <id>`                               |
+| Why a deployed app is failing (one snapshot)                  | `getAppDiagnostics`                                                       | `diagnostics --app <id>`                        |
 | Verify a deployed response                                    | `curlApp`                                                                 | `curl --app <id> --path <p>`                    |
 | Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
 | Inspect a granted integration / the app's own Postgres        | `inspectIntegrationApi` / `inspectAppDb`                                  | —                                               |
@@ -1075,7 +1076,7 @@ Use these tools together:
   bodies on the CLI come from `--headers-file` / `--body-file` (`-` for stdin), never argv.
   Platform admins may use `as_user` / `--as-user` to reproduce another same-org user's view; the
   selected user must still have access to the app. On `app.unreachable`, inspect `details.hit_app`, then check
-  `getApp` and `getLogs` before retrying; other roles must not impersonate.
+  `getAppDiagnostics` and `getLogs` before retrying; other roles must not impersonate.
 - **`getAppPreviewUrl({ app_id, path? })` — or `greenlight preview --app <id> [--path <p>]` — for
   browser behavior.** Mints a one-time URL you open in your own browser tool (IDE
   preview pane, Playwright, any headless browser). It signs you in through the SSO boundary with no
@@ -1091,6 +1092,14 @@ Use these tools together:
   curl, a plain HTTP fetch, or a WebFetch-style tool: it drops the cookie, lands on the SSO login
   page, and burns the token. Use `curlApp` for response-level checks; if a non-browser tool touches
   a preview URL, mint a new one.
+- `getAppDiagnostics({ app_id })` — or `greenlight diagnostics --app <id>` — **the first read when a
+  deployed app misbehaves.** One snapshot: pod phase, readiness, restarts and the last exit (OOM
+  included), probe failures, each env name as `ok` / `missing` / `stale` (never values),
+  reachability of the app's database, data proxy, and injected integrations, whether the pod runs
+  the last-merge image, and the `rollout_blocker` the deploy check would report. Act on it before
+  changing code: a `missing` name needs `envSet` or an approved grant, a `stale` one needs a merge
+  to roll it, and a blocker with `owner: "operator"` is IT's to fix, so stop editing app code and
+  tell the citizen developer.
 - `getLogs({ app_id, since?, filter? })` — bounded pod stdout/stderr with crash-loop context. Apps
   must log handler errors for this to help: a 500 that only returns JSON to the client leaves
   nothing in the pod log.

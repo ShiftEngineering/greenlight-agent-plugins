@@ -17135,6 +17135,11 @@ var MCP_COMMANDS = {
     summary: "Latest CPU/memory/restart metrics snapshot.",
     flags: { app: appRequired }
   },
+  diagnostics: {
+    tool: "getAppDiagnostics",
+    summary: "Runtime-health snapshot: pod and probe state, env contract, dependency reachability, freshness, rollout blocker.",
+    flags: { app: appRequired }
+  },
   "metrics series": {
     tool: "getMetricsSeries",
     summary: "CPU or memory history over a window.",
