@@ -239,8 +239,13 @@ with nothing for anyone to type or read. **Never load a sign-in URL yourself —
 URL, not `/cli/approve` — in your own preview pane or embedded browser tool.** Yours holds none of
 the person's cookies, so it strands them on an SSO wall in a window they are not even looking at;
 the CLI already reached the browser they are actually using. When no browser could be reached,
-`login` prints an approval URL + code and returns immediately: hand the person both, then re-run
-`login` to collect the credential, so `auth.approval_pending` is progress, never an error. If the
+`login` prints an approval URL + code and returns immediately: hand the person both, with the
+output's own line that they must approve in a browser already signed in to Greenlight before the
+code expires (10 minutes), then re-run `login` to collect the credential, so
+`auth.approval_pending` is progress, never an error. A scheduled or unattended run has no one to
+approve in time, so sign the CLI in during an attended session on the machine the run will use:
+the stored credential then refreshes itself for about 90 days from sign-in. Once `whoami`
+reports the session expired, sign in again during an attended session. If the
 human is taking a while, stop re-running: either start one background `greenlight login --wait`
 (only if your environment notifies you when a background command finishes — it exits the moment
 they approve) or ask them to say when they have approved, then run `login` once more. **Do not pass

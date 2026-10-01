@@ -16708,9 +16708,9 @@ var RUN_FLAGS = {
 function ensureOk(res, context) {
   if (res.status === 401) throw sessionExpiredError();
   if (res.status === 403) {
-    throw forbiddenError(
-      "This CLI session is not scoped to this app. Re-pair from an owner/co-owner."
-    );
+    const message2 = readString(res.body, "message") ?? "You are not an owner or editor of this app.";
+    const nextSteps = readString(res.body, "next_steps");
+    throw forbiddenError(nextSteps === void 0 ? message2 : `${message2} ${nextSteps}`);
   }
   if (res.status !== 200) {
     const msg = readString(res.body, "message") ?? `HTTP ${res.status}`;
@@ -17476,7 +17476,7 @@ var LOCAL_FLAG_HELP = {
     flags: RUN_FLAGS
   },
   login: {
-    summary: "Sign in. Tries your own default browser first \u2014 a browser already signed in to Greenlight finishes in seconds with nothing to type \u2014 and otherwise prints an approval URL and a code and returns right away. Approve the code \u2014 call approveCliSession({ code }) if the Greenlight MCP tools are connected, or have a person enter it at the printed URL \u2014 then run `greenlight login` again to collect the credential. Re-running resumes the same request and is always safe. --loopback is the browser-only flow for a human signing in on this machine: no code fallback, and it waits up to five minutes.",
+    summary: "Sign in. Tries your own default browser first \u2014 a browser already signed in to Greenlight finishes in seconds with nothing to type \u2014 and otherwise prints an approval URL and a code and returns right away. Approve the code \u2014 call approveCliSession({ code }) if the Greenlight MCP tools are connected, or have a person enter it at the printed URL in a browser already signed in to Greenlight \u2014 then run `greenlight login` again to collect the credential. The code expires 10 minutes after it is printed. Re-running resumes the same request while it is still pending, and starts a fresh sign-in once it has expired. --loopback is the browser-only flow for a human signing in on this machine: no code fallback, and it waits up to five minutes.",
     flags: LOGIN_FLAGS
   },
   preview: { summary: "Emit a single-use preview URL for the app.", flags: PREVIEW_FLAGS },
@@ -18124,6 +18124,7 @@ function approvalPendingError(pending, browserOpened) {
   err.details = {
     code: pending.code,
     approval_url: pending.approvalUrl,
+    expires_at: new Date(pending.expiresAt).toISOString(),
     next_steps: [
       `If the Greenlight MCP tools are connected, call approveCliSession({ code: "${pending.code}" }).`,
       ...browserOpened ? [
@@ -18132,10 +18133,15 @@ function approvalPendingError(pending, browserOpened) {
       "If not, give the person this URL and this code:",
       pending.approvalUrl,
       `Type: ${pending.code}`,
+      approverHint(pending),
       "Then run `greenlight login` again in the foreground."
     ].join("\n")
   };
   return err;
+}
+function approverHint(pending) {
+  const minutes = Math.max(1, Math.ceil((pending.expiresAt - Date.now()) / 6e4));
+  return `Approve it in a browser already signed in to Greenlight (usually a work browser profile). The code expires in ${minutes} minute${minutes === 1 ? "" : "s"}.`;
 }
 async function createPairingHandshake(apiBase, opts) {
   const code = genPairingCode();
@@ -18180,11 +18186,14 @@ async function createPairingHandshake(apiBase, opts) {
   if (opts.browserOpened) {
     note("[greenlight] The sign-in tab did not finish in time. Use this code instead.");
   }
-  note(`
+  note(
+    `
 Approve this sign-in at:
 ${live.approvalUrl}
 Code: ${live.code}
-`);
+${approverHint(live)}
+`
+  );
   throw approvalPendingError(live, opts.browserOpened);
 }
 async function resumePairing(apiBase, pending, budgetMs) {
