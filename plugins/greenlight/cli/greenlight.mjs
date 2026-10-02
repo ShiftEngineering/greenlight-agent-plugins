@@ -17293,6 +17293,36 @@ var MCP_COMMANDS = {
       }
     }
   },
+  "inspect integration-db": {
+    tool: "inspectIntegrationDb",
+    summary: "Run one SQL statement, for reading, against a granted connected database (rows capped).",
+    flags: {
+      app: {
+        field: "app_id",
+        type: "string",
+        format: "uuid",
+        describe: "Run on this app's grant; omit to use your own personal grant."
+      },
+      integration: {
+        field: "integration",
+        type: "string",
+        required: true,
+        describe: "Connected-database integration slug (from `integrations list`)."
+      },
+      statement: {
+        field: "statement",
+        type: "string",
+        required: true,
+        describe: "One T-SQL statement, for reading; ordinary writes are rolled back."
+      },
+      param: {
+        field: "params",
+        type: "string",
+        repeated: true,
+        describe: "Positional bind parameter for @p1, @p2, \u2026 (repeatable, in order)."
+      }
+    }
+  },
   "knowledge list": {
     tool: "knowledgeList",
     summary: "List knowledge entries.",

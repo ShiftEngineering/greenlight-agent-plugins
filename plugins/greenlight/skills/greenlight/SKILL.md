@@ -198,17 +198,24 @@ shape, a non-obvious symbol/ID lookup, a data-model quirk — **write it back wi
 into durable context and is how integration Knowledge gets seeded in practice. Propose facts you
 verified by actually calling the API, not assumptions.
 
-**Look at real data before you write code against it.** Two MCP tools run inside Greenlight against
+**Look at real data before you write code against it.** Three MCP tools run inside Greenlight against
 the vaulted credential and hand you only the result, never the credential:
 
 - `inspectIntegrationApi({ app_id?, integration, method, path, query?, headers?, body? })` makes one
   HTTP call to a granted proxied integration and returns `{ status, headers, body, encoding,
 truncated }`. Omit `app_id` to use your own personal grant. `inspect.not_inspectable` means the
-  integration has no inspection path (injected delivery, a connected database); `inspect.not_implemented`
+  integration has no HTTP inspection path (injected delivery, or a connected database, which has
+  `inspectIntegrationDb`); `inspect.not_implemented`
   means its auth mode is not covered yet. For either, fall back to the provider's docs, a
   `greenlight run`, or fixtures.
 - `inspectAppDb({ app_id, statement, params? })` runs one read-only SQL statement against the app's
   own Postgres and returns columns plus up to 200 rows.
+- `inspectIntegrationDb({ app_id?, integration, statement, params? })` runs one T-SQL statement
+  against a granted connected database (Azure SQL, Fabric) and returns columns plus up to 200 rows.
+  It is for reading schema and data, not for changing them: ordinary writes are rolled back, but
+  `COMMIT`s in the statement can make them stick, so never put `BEGIN`/`COMMIT`/`ROLLBACK` in it
+  (`inspect.transaction_control`). Omit `app_id` to use
+  your own personal grant. See the `connected-databases` skill.
 
 Loop: inspect to learn the real shape (response fields, pagination, error bodies, table columns),
 write the code against what you saw, then `knowledgePropose` what the next session would otherwise
@@ -271,6 +278,7 @@ fallback and blocks for five minutes, which wedges you on any machine with no br
 | Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
 | Inspect a granted integration / the app's own Postgres        | `inspectIntegrationApi` / `inspectAppDb`                                  | `inspect api` / `inspect db`                    |
 | Read the checks the pipeline gate enforces                    | `getPolicies`                                                             | `policies`                                      |
+| Inspect a granted connected database                          | `inspectIntegrationDb`                                                    | `inspect integration-db --integration <slug> …` |
 | Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose` |
 | Brand assets — the real logo/icon, never invented             | `knowledgeAssetList` / `knowledgeAssetGet`                                | `knowledge asset list` / `knowledge asset get`  |
 | Clone the repo (minted token)                                 | `getRepoAccess`                                                           | `repo clone --app <id>`                         |

@@ -89,8 +89,15 @@ Preserve `request_id` and never infer rollback from a status code or missing res
 
 ## Discover and verify
 
-Read the database's integration Knowledge before writing queries. Discover schema through the same
-route with `INFORMATION_SCHEMA.TABLES` and `INFORMATION_SCHEMA.COLUMNS`. Elevated metadata views
+Read the database's integration Knowledge before writing queries. Discover schema with
+`inspectIntegrationDb({ app_id?, integration, statement, params? })` (CLI:
+`greenlight inspect integration-db --integration <slug> --statement '…'`), which runs one statement
+on the same executor as `/query` and returns the same `{ columns, rows, row_count, truncated }`
+grid, capped at 200 rows. Greenlight rolls an ordinary statement's writes back, and refuses one
+with its own `BEGIN`/`COMMIT`/`ROLLBACK` (`inspect.transaction_control`). That refusal can come
+after the fact: two `COMMIT`s commit the work. Use it only to read; the DB role decides writes.
+Query `INFORMATION_SCHEMA.TABLES` and `INFORMATION_SCHEMA.COLUMNS` there, or through the same
+`/query` route from a running app. Elevated metadata views
 may be denied; fall back to `sys.partitions` or `INFORMATION_SCHEMA`. Confirm assumptions against a
 real call, then use `knowledgePropose` to preserve verified schema, naming, and query patterns.
 
