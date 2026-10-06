@@ -16515,7 +16515,27 @@ async function jsonRequest(method, url2, opts = {}) {
   }
   return { status: res.status, body: parsed };
 }
+var UNREACHABLE_CODES = /* @__PURE__ */ new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENETUNREACH"
+]);
+function errorCode(err) {
+  if (!err || typeof err !== "object") return "";
+  if ("code" in err && typeof err.code === "string") return err.code;
+  if ("cause" in err) return errorCode(err.cause);
+  return "";
+}
+function unreachableControlPlaneDetail(err) {
+  if (!UNREACHABLE_CODES.has(errorCode(err))) return null;
+  return "Could not reach Greenlight. Connect to the company network and retry.";
+}
 function describeFetchError(err) {
+  const unreachable = unreachableControlPlaneDetail(err);
+  if (unreachable) return unreachable;
   if (err instanceof DOMException && err.name === "TimeoutError") return "timed out";
   if (err instanceof Error) {
     const cause = err.cause;
@@ -16552,6 +16572,8 @@ async function refresh(apiBase, record2) {
       refreshToken
     });
   } catch (err) {
+    const companyNetwork = unreachableControlPlaneDetail(err);
+    if (companyNetwork) throw new CliError(companyNetwork);
     if (isNetworkError(err)) {
       throw new CliError(
         "Could not reach Greenlight to refresh your session. Check your connection and retry."
