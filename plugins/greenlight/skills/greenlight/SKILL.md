@@ -198,7 +198,7 @@ shape, a non-obvious symbol/ID lookup, a data-model quirk — **write it back wi
 into durable context and is how integration Knowledge gets seeded in practice. Propose facts you
 verified by actually calling the API, not assumptions.
 
-**Look at real data before you write code against it.** Three MCP tools run inside Greenlight against
+**Look at real data before you write code against it.** Four MCP tools run inside Greenlight against
 the vaulted credential and hand you only the result, never the credential:
 
 - `inspectIntegrationApi({ app_id?, integration, method, path, query?, headers?, body? })` makes one
@@ -210,6 +210,10 @@ truncated }`. Omit `app_id` to use your own personal grant. `inspect.not_inspect
   `greenlight run`, or fixtures.
 - `inspectAppDb({ app_id, statement, params? })` runs one read-only SQL statement against the app's
   own Postgres and returns columns plus up to 200 rows.
+- `inspectAppBlob({ app_id, action: "list" | "head", prefix?, key? })` lists up to 200 objects in
+  the app's own blob storage, or heads one by `key`, and returns each object's key, size, content
+  type, and last-modified time. It never returns file contents: they are the app users' uploads.
+  To debug one file's contents, use a `greenlight run` or a fixture.
 - `inspectIntegrationDb({ app_id?, integration, statement, params? })` runs one T-SQL statement
   against a granted connected database (Azure SQL, Fabric) and returns columns plus up to 200 rows.
   It is for reading schema and data, not for changing them: ordinary writes are rolled back, but
@@ -277,6 +281,7 @@ fallback and blocks for five minutes, which wedges you on any machine with no br
 | Verify a deployed response                                    | `curlApp`                                                                 | `curl --app <id> --path <p>`                    |
 | Metrics (point / series)                                      | `getMetrics` / `getMetricsSeries`                                         | `metrics` / `metrics series --app <id>`         |
 | Inspect a granted integration / the app's own Postgres        | `inspectIntegrationApi` / `inspectAppDb`                                  | `inspect api` / `inspect db`                    |
+| List or head the app's own stored files (metadata only)       | `inspectAppBlob`                                                          | `inspect blob --app <id> --action list`         |
 | Read the checks the pipeline gate enforces                    | `getPolicies`                                                             | `policies`                                      |
 | Inspect a granted connected database                          | `inspectIntegrationDb`                                                    | `inspect integration-db --integration <slug> …` |
 | Knowledge (read / propose)                                    | `knowledgeList` / `knowledgeGet` / `knowledgeSearch` / `knowledgePropose` | `knowledge list` / `get` / `search` / `propose` |

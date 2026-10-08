@@ -17315,6 +17315,26 @@ var MCP_COMMANDS = {
       }
     }
   },
+  "inspect blob": {
+    tool: "inspectAppBlob",
+    summary: "List or head objects in the app's own blob storage (metadata only, never contents).",
+    flags: {
+      app: appRequired,
+      action: {
+        field: "action",
+        type: "enum",
+        enumValues: ["list", "head"],
+        required: true,
+        describe: "list | head."
+      },
+      prefix: {
+        field: "prefix",
+        type: "string",
+        describe: "list: narrow to keys starting with this string."
+      },
+      key: { field: "key", type: "string", describe: "head: the relative key of one object." }
+    }
+  },
   "inspect integration-db": {
     tool: "inspectIntegrationDb",
     summary: "Run one SQL statement, for reading, against a granted connected database (rows capped).",
