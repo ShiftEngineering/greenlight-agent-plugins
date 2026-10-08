@@ -365,7 +365,7 @@ The standard new-app loop:
 6. **Wait, then merge.** Poll `getPipelineRun` (`greenlight pipeline --pr <n> --wait`) with
    `pull_request_number` and `wait: true`. Once it returns `passed`, take its `commit_sha` and merge
    through Greenlight with `mergePullRequest({ app_id, pull_request_number, expected_head_sha:
-commit_sha })` or `greenlight pr merge` — **never** `gh pr merge` or the GitHub API. Merge fails
+commit_sha })` or `greenlight pr merge --app <id> --pr <n> --head-sha <commit_sha>` — **never** `gh pr merge` or the GitHub API. Merge fails
    closed if the PR has moved past that SHA (a new push landed) or that SHA hasn't passed; re-poll
    `getPipelineRun` on the new head and retry. If it fails with `scm.branch_behind`, `main` moved
    on after you branched (another PR landed, or Greenlight updated the generated workflow): merge
@@ -618,8 +618,9 @@ Grants are request signals, not merge blockers: an auto-approved grant works the
 merges; an IT-required grant deploys in `pending` and the proxy returns `403` for it until IT
 approves out of band (no redeploy needed). Watch grant status in `getApp`.
 
-**The provisioned `postgres` resource is Azure Database for PostgreSQL (v16), and `CREATE
-EXTENSION` is not allow-listed for app users** — a migration that runs
+**The provisioned `postgres` resource is a managed PostgreSQL 16 server — Azure Database for
+PostgreSQL on Azure, Cloud SQL on GCP, RDS on AWS — and `CREATE EXTENSION` is not allowed for app
+users** — a migration that runs
 `CREATE EXTENSION pgcrypto` (or `uuid-ossp`) passes the build and then crash-loops the pod on
 first boot. Write schemas that need no extensions: `gen_random_uuid()` is built into Postgres 16
 core (no pgcrypto required), or generate ids in app code (`crypto.randomUUID()`).
@@ -757,6 +758,26 @@ rejects them as reserved.
 | a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name                    |
 | an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                                      |
 | always (a `web` workload)                         | `PORT`                                                                             |
+
+**Connect to Postgres with `DATABASE_URL` exactly as injected — it already carries the TLS
+settings.** On GCP it reads `sslmode=verify-ca&sslrootcert=/etc/greenlight/db-server-ca.pem`: the
+server certificate is verified against the mounted Cloud SQL CA, and the hostname is not checked
+because the pod reaches the database by private IP, which the certificate never names. That is the
+platform's supported posture, not a TLS weakening. libpq-based clients (psycopg, `psql`) honor it
+as-is. Node's `pg` treats `verify-ca` as `verify-full` and fails with
+`ERR_TLS_CERT_ALTNAME_INVALID` unless the connection string also carries `uselibpqcompat=true` —
+add it in app code, inside the string (a `useLibpqCompat` constructor option does not reach the
+parser):
+
+```js
+const url = new URL(process.env.DATABASE_URL);
+if (url.searchParams.get('sslmode') === 'verify-ca') url.searchParams.set('uselibpqcompat', 'true');
+const pool = new Pool({ connectionString: url.toString() });
+```
+
+Do not add an `ssl` object, read `DATABASE_SERVER_CA_CERT` yourself, set
+`rejectUnauthorized: false`, or pin a `servername`. On Azure the string carries
+`sslmode=require`; pass it unchanged.
 
 **Blob access is a focused Skill.** When the manifest declares `kind: blob`, read the bundled
 [storage skill](../storage/SKILL.md) in full before writing object I/O. It owns the copy-in client,
@@ -1104,7 +1125,7 @@ yourself. The governed change request then goes through MCP:
 - **Open** with `createPullRequest` **after your feature branch is pushed** — an unpushed branch
   has no commits to propose. Pass `app_id` and the head branch; Greenlight resolves the repo.
 - **Merge** with `mergePullRequest` only after you have observed a passing pipeline for the exact
-  head SHA — pass it as `expected_head_sha`; merge fails closed if the PR moved past it or that SHA
+  head SHA — pass it as `expected_head_sha` (CLI: `--head-sha`); merge fails closed if the PR moved past it or that SHA
   didn't pass, and with `scm.branch_behind` if `main` moved on since you branched. Direct pushes to
   `main` are blocked by branch protection.
 
