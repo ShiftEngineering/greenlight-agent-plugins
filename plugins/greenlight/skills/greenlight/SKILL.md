@@ -944,8 +944,9 @@ outcome there, so never mint or replay a token for it.
 
 Some integrations reach the upstream **as the person using the app** rather than as a shared
 service identity — Microsoft Graph (mail, calendar, files, directory as the user), Microsoft
-Fabric (the REST API and the API for GraphQL under the person's own workspace role), and Power BI
-semantic models (DAX with the model's row-level security), and a Fabric Warehouse connected
+Fabric (the REST API and the API for GraphQL under the person's own workspace role), Power BI
+semantic models (DAX with the model's row-level security), Box (files and folders the person
+can open, with no connect step), and a Fabric Warehouse connected
 database (SQL as the person; the [connected-databases skill](../connected-databases/SKILL.md)
 covers its `/query` route). `listGrantableIntegrations` shows the HTTP ones
 with `auth_category: user-delegated`. A Fabric Warehouse lists as
@@ -973,7 +974,10 @@ Rules, in order:
    GraphQL item (`POST …/v1/workspaces/<ws>/graphqlapis/<id>/graphql`, endpoint from the item's
    settings) runs as the person only when IT set it to single sign-on. Power BI:
    `POST /v1.0/myorg/datasets/<id>/executeQueries` with one DAX query per call, body
-   `{ "queries": [{ "query": "EVALUATE …" }] }`; never send `impersonatedUserName`.
+   `{ "queries": [{ "query": "EVALUATE …" }] }`; never send `impersonatedUserName`. Box:
+   `GET /2.0/folders/0/items` lists the person's own root folder; never send `As-User` (the proxy
+   strips it); a file's `/content` answers `302` to a `dl.boxcloud.com` URL to follow without a
+   token; uploads to `upload.box.com` are not available through the proxy.
 4. **Handle the two "not connected" answers.** `401 proxy.user_connection_required` comes from
    the proxy when the grant is `user_connection: optional` and the person has not connected, or
    when their stored token stopped working while the page was open; a fetch from the app's own
@@ -982,7 +986,9 @@ Rules, in order:
    return — never with another identity. The proxy's link carries no `return_to`, so append
    `&return_to=<the absolute URL of the page the person was on>` before redirecting; Greenlight
    validates it against your app's host and sends them back there once connected. The link from
-   `/auth/check` already carries one.
+   `/auth/check` already carries one. Box has no connect step: `403 proxy.upstream_user_unmapped`
+   means Box has no single active, non-admin account with the person's email; show `next_steps`
+   and stop, since only IT can fix it.
 5. **What you read as one person, you show only to that person.** The upstream's own
    permissions (a mailbox, row-level security on a Fabric model, a database role) are the
    boundary, and your copy keeps it: key any cache or table you fill from these calls by the
