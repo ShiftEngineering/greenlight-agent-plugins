@@ -945,8 +945,12 @@ outcome there, so never mint or replay a token for it.
 Some integrations reach the upstream **as the person using the app** rather than as a shared
 service identity — Microsoft Graph (mail, calendar, files, directory as the user), Microsoft
 Fabric (the REST API and the API for GraphQL under the person's own workspace role), and Power BI
-semantic models (DAX with the model's row-level security). `listGrantableIntegrations` shows them
-with `auth_category: user-delegated`.
+semantic models (DAX with the model's row-level security), and a Fabric Warehouse connected
+database (SQL as the person; the [connected-databases skill](../connected-databases/SKILL.md)
+covers its `/query` route). `listGrantableIntegrations` shows the HTTP ones
+with `auth_category: user-delegated`. A Fabric Warehouse lists as
+`auth_category: connected-database` like any connected database; its `usage_note` says it acts as
+the signed-in user.
 Rules, in order:
 
 1. **Implement no OAuth.** No redirect, no callback, no consent screen, no token storage.

@@ -13,7 +13,8 @@ adds the contract for Greenlight's connected-database gateway.
 
 A granted **connected database** (`auth_category: 'connected-database'` in
 `listGrantableIntegrations`) is proxied but is not an HTTP upstream. No SQL driver or connection
-string exists in the app. Azure SQL and a Microsoft Fabric Warehouse share this contract exactly —
+string exists in the app — unless the grant's `delivery_mode` is `injected` (see
+[Injected connected databases](#injected-connected-databases)). Azure SQL and a Microsoft Fabric Warehouse share this contract exactly —
 both are T-SQL over the same gateway. POST a parameterized statement to the integration's one
 query route:
 
@@ -26,6 +27,14 @@ Authorization: Bearer ${GREENLIGHT_DATA_KEY}
 - **User attribution:** when calling `/query` while handling a user request, forward the inbound
   `X-Greenlight-Actor-Token` if present, following the core skill's _Preserve user attribution_
   rule.
+- **A warehouse registered as the signed-in user requires the actor token.** A Fabric Warehouse
+  registered as the person still lists as `auth_category: 'connected-database'`; its
+  `usage_note` in `listGrantableIntegrations` says it "acts as the signed-in user" and names the
+  actor token. Check the `usage_note`, not the category. Such a warehouse runs every query as
+  the person, under their own workspace role, `GRANT`s and row-level security. Forward
+  `X-Greenlight-Actor-Token` on every `/query` call, and follow the core skill's _User passthrough
+  integrations_ rules: no call without a present person, and rows read as one person are shown
+  only to that person.
 - **Parameterize, always.** `params` binds positionally to T-SQL's `@p1…` placeholders. Values
   are `string | number | boolean | null` only. Numeric integer params must fit JavaScript's
   safe-integer range; pass larger integers, exact decimals, dates, and binary as strings and
@@ -86,6 +95,12 @@ Preserve `request_id` and never infer rollback from a status code or missing res
 - `400 validation.body_invalid` / `413 validation.body_too_large` — fix the request shape or size.
 - `403 proxy.grant_missing` — request or correct the grant.
 - `499 proxy.query_canceled` — the caller disconnected while work was queued or active.
+- `401 proxy.actor_token_required` — a user-delegated warehouse was called with no actor token;
+  forward the inbound one, and never call it from background work.
+- `401 proxy.user_connection_required` — the person has not connected, or their connection
+  stopped working; send them to `details.connect_url` and retry once they return.
+- `403 proxy.upstream_user_unmapped` — the warehouse refused the person's login, usually because
+  they have no access to it; the fix is a grant in the warehouse, not a retry.
 
 ## Discover and verify
 
@@ -96,6 +111,8 @@ on the same executor as `/query` and returns the same `{ columns, rows, row_coun
 grid, capped at 200 rows. Greenlight rolls an ordinary statement's writes back, and refuses one
 with its own `BEGIN`/`COMMIT`/`ROLLBACK` (`inspect.transaction_control`). That refusal can come
 after the fact: two `COMMIT`s commit the work. Use it only to read; the DB role decides writes.
+On a user-delegated warehouse it answers `501 inspect.not_implemented`; discover schema there
+through `/query` from a running app instead.
 Query `INFORMATION_SCHEMA.TABLES` and `INFORMATION_SCHEMA.COLUMNS` there, or through the same
 `/query` route from a running app. Elevated metadata views
 may be denied; fall back to `sys.partitions` or `INFORMATION_SCHEMA`. Confirm assumptions against a
@@ -103,3 +120,17 @@ real call, then use `knowledgePropose` to preserve verified schema, naming, and 
 
 The gateway works under `greenlight run` in both app and user modes; use user mode to explore a
 schema before an app exists.
+
+## Injected connected databases
+
+When `getApp` shows a connected-database grant with `delivery_mode: injected`, there is no `/query`
+route for it: IT delivered an Entra service principal for the app's own driver. The grant's
+`env_var_name` is a prefix, and the pod receives `<prefix>_HOST`, `<prefix>_PORT`,
+`<prefix>_DATABASE`, `<prefix>_TENANT_ID`, `<prefix>_CLIENT_ID`, and `<prefix>_CLIENT_SECRET`
+(`getApp` lists the exact names). Connect with the driver's service-principal mode — Node `mssql` /
+`tedious` with `authentication.type: 'azure-active-directory-service-principal-secret'` and
+`options: { encrypt: true }` — and never assemble the values into a logged connection string.
+Interactive transactions and an ORM work here; Greenlight does not audit these queries, and the
+gateway rules above (`@p1` params, caps, error metadata) do not apply. Parameterize anyway.
+`inspectIntegrationDb` refuses an injected database (`inspect.not_inspectable`): learn the schema
+from its Knowledge, or query it from a local `greenlight run`, which receives the same six values.
