@@ -111,8 +111,8 @@ on the same executor as `/query` and returns the same `{ columns, rows, row_coun
 grid, capped at 200 rows. Greenlight rolls an ordinary statement's writes back, and refuses one
 with its own `BEGIN`/`COMMIT`/`ROLLBACK` (`inspect.transaction_control`). That refusal can come
 after the fact: two `COMMIT`s commit the work. Use it only to read; the DB role decides writes.
-On a user-delegated warehouse it answers `501 inspect.not_implemented`; discover schema there
-through `/query` from a running app instead.
+On a user-delegated warehouse it runs as the developer; `inspect.user_connection_required` means
+they have not connected yet: ask them to open `details.connect_url`, then rerun.
 Query `INFORMATION_SCHEMA.TABLES` and `INFORMATION_SCHEMA.COLUMNS` there, or through the same
 `/query` route from a running app. Elevated metadata views
 may be denied; fall back to `sys.partitions` or `INFORMATION_SCHEMA`. Confirm assumptions against a

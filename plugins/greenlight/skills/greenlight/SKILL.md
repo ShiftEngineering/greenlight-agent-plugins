@@ -207,7 +207,9 @@ truncated }`. Omit `app_id` to use your own personal grant. `inspect.not_inspect
   integration has no HTTP inspection path (injected delivery, or a connected database, which has
   `inspectIntegrationDb`); `inspect.not_implemented`
   means its auth mode is not covered yet. For either, fall back to the provider's docs, a
-  `greenlight run`, or fixtures.
+  `greenlight run`, or fixtures. On a user passthrough integration the call runs as the developer;
+  `inspect.user_connection_required` means they have not connected yet: ask them to open
+  `details.connect_url`, then rerun.
 - `inspectAppDb({ app_id, statement, params? })` runs one read-only SQL statement against the app's
   own Postgres and returns columns plus up to 200 rows.
 - `inspectAppBlob({ app_id, action: "list" | "head", prefix?, key? })` lists up to 200 objects in
@@ -397,8 +399,8 @@ One-paragraph description of what this app does.
 ## Quick Start
 1. Clone the repo
 2. Install dependencies: `npm install` (or the stack equivalent)
-3. Set up environment: `greenlight run` supplies real values for granted credentials; for
-   user passthrough integrations write your own `.env` fixtures
+3. Set up environment: `greenlight run` supplies real values for granted credentials and acts as
+   you on user passthrough integrations, once you connect through the link it prints
 4. Run the dev server: `greenlight run -- npm run dev` (or plain `npm run dev` with fixtures)
 
 ## Commands
@@ -529,9 +531,10 @@ the grant is the gate. At MVP:
   through the unchanged grant-check + credential-swap + audit path. No upstream secret on the
   laptop.
 - **Granted injected integration** → the real credential, in-process. Live.
-- **User passthrough integration** (Microsoft Graph as the signed-in person) → no laptop actor
-  token exists yet; author a fixture (see _User passthrough integrations_ under _Reaching
-  company data_).
+- **User passthrough integration** (Microsoft Graph as the signed-in person) → live as the
+  developer, through the same minted token; `greenlight run` prints a connect link for each one
+  they have not connected yet (see _User passthrough integrations_ under _Reaching company
+  data_).
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
 - **Blob** → the [storage skill](../storage/SKILL.md) copy-in client against the proxy
   (`GREENLIGHT_PROXY_URL` + the minted `purpose: 'local'` token). No `STORAGE_*` credential is
@@ -1022,8 +1025,14 @@ Rules, in order:
    person, so scheduled, queued, or startup work cannot use it. Work that must run with nobody
    signed in binds a separate service-identity credential and grant, and no feature may assume
    the app can act for a person who is away.
-8. **Locally, no actor token exists yet**: author fixtures for these integrations and verify the
-   real wiring after deploy (`curlApp` carries the actor token; `getAppPreviewUrl` signs you in).
+8. **Locally, the developer is the person.** `greenlight run` (either mode) and
+   `inspectIntegrationApi` call these integrations as the developer, with real effects: a local
+   send-mail sends from their own mailbox. No actor token exists or is needed locally. The first
+   time, `greenlight run` prints a connect link per integration and starts anyway; ask the
+   developer to open it, then retry, with no restart. `user_connection: required` gates nothing
+   locally, because no sign-in sits in front of a local process, so check the connect redirect on
+   the deployed app (`getAppPreviewUrl`; `curlApp` carries the actor token). Use fixtures when
+   real effects are unwanted.
 
 ### Blob storage
 
