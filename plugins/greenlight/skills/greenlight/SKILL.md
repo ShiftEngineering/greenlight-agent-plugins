@@ -940,6 +940,17 @@ A granted integration reaches its upstream one of two ways, set per-integration 
 
 Either way, never hardcode or commit a credential.
 
+**Decide whose identity each feature acts as, and ask when the request leaves it open.** Many
+systems can be reached two ways: as the person using the app (a user passthrough integration,
+`auth_category: user-delegated`, which sees only what that person can) or as the app itself (a
+service-identity integration, which sees what IT granted the app). The same upstream is often
+registered both ways. The choice decides whose name is on the result, what data comes back, and
+whether the feature works with nobody signed in. When the request does not say ("send an email",
+"pull the sales numbers"), ask one plain question before writing code, for example: "Should
+these emails come from each person's own mailbox, or from a shared address like alerts@?" Work
+with nobody signed in can only act as the app; a feature that shows a person their own data
+should act as them.
+
 ### Preserve user attribution
 
 Greenlight injects an opaque `X-Greenlight-Actor-Token` header into every authenticated request
@@ -1007,10 +1018,10 @@ Rules, in order:
    when their stored token stopped working while the page was open; a fetch from the app's own
    front end can instead get `401 auth.user_connection_required` from `/auth/check`. Both carry
    the link in `details.connect_url`. Either way, send the person there and retry once they
-   return — never with another identity. The proxy's link carries no `return_to`, so append
-   `&return_to=<the absolute URL of the page the person was on>` before redirecting; Greenlight
-   validates it against your app's host and sends them back there once connected. The link from
-   `/auth/check` already carries one. Box has no connect step: `403 proxy.upstream_user_unmapped`
+   return — never with another identity. Once connected, the proxy's link brings the person
+   back to your app's home page; to bring them back to the page they were on, set its
+   `return_to` to that page's absolute URL. The link from `/auth/check` already returns them to
+   the page they opened. Box has no connect step: `403 proxy.upstream_user_unmapped`
    means Box has no single active, non-admin account with the person's email; show `next_steps`
    and stop, since only IT can fix it.
 5. **What you read as one person, you show only to that person.** The upstream's own
