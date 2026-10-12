@@ -985,8 +985,9 @@ can open, with no connect step), and a Fabric Warehouse connected
 database (SQL as the person; the [connected-databases skill](../connected-databases/SKILL.md)
 covers its `/query` route). `listGrantableIntegrations` shows the HTTP ones
 with `auth_category: user-delegated`. A Fabric Warehouse lists as
-`auth_category: connected-database` like any connected database; its `usage_note` says it acts as
-the signed-in user.
+`auth_category: connected-database` like any connected database. Each one's `usage_note` says it
+acts as the signed-in user, then gives that upstream's own calling instructions: paths, paging,
+limits, and errors. Read it before writing calls.
 Rules, in order:
 
 1. **Implement no OAuth.** No redirect, no callback, no consent screen, no token storage.
@@ -997,22 +998,11 @@ Rules, in order:
    `X-Greenlight-Actor-Token`, as above. The proxy swaps them for that person's own upstream
    token, so the upstream sees that person and enforces their permissions.
 3. **Call the proxy as you would call the upstream** — same paths, same bodies, under
-   `${GREENLIGHT_PROXY_URL}/<integration>/…`. Graph: `GET /v1.0/me/messages`;
-   `POST /v1.0/me/sendMail` sends as the person and lands in their own Sent Items. **Rewrite
-   absolute paging links** (`@odata.nextLink`, `@odata.deltaLink`) onto the proxy base URL;
-   following one directly leaves the proxy and fails with no token. A `429` arrives with
-   `Retry-After`: wait that long and retry — the proxy does not retry for you. A drive item's
-   `/content` answers `302` to a short-lived pre-authenticated URL: follow it without a token and
-   never log it. Fabric: `GET /v1/workspaces` lists the person's own workspaces; list responses
-   page with `continuationUri`, an absolute URL — take its path and query through the proxy; a
-   long-running operation's `202` `Location` is polled through the proxy as the same person; a
-   GraphQL item (`POST …/v1/workspaces/<ws>/graphqlapis/<id>/graphql`, endpoint from the item's
-   settings) runs as the person only when IT set it to single sign-on. Power BI:
-   `POST /v1.0/myorg/datasets/<id>/executeQueries` with one DAX query per call, body
-   `{ "queries": [{ "query": "EVALUATE …" }] }`; never send `impersonatedUserName`. Box:
-   `GET /2.0/folders/0/items` lists the person's own root folder; never send `As-User` (the proxy
-   strips it); a file's `/content` answers `302` to a `dl.boxcloud.com` URL to follow without a
-   token; uploads to `upload.box.com` are not available through the proxy.
+   `${GREENLIGHT_PROXY_URL}/<integration>/…`, as the integration's `usage_note` describes. **Rewrite
+   absolute paging links** onto the proxy base URL; following one directly leaves the proxy and
+   fails with no token. A `429` arrives with `Retry-After`: wait that long and retry — the proxy
+   does not retry for you. A download that answers `302` to a short-lived pre-authenticated URL is
+   followed without a token and never logged.
 4. **Handle the two "not connected" answers.** `401 proxy.user_connection_required` comes from
    the proxy when the grant is `user_connection: optional` and the person has not connected, or
    when their stored token stopped working while the page was open; a fetch from the app's own
@@ -1021,9 +1011,8 @@ Rules, in order:
    return — never with another identity. Once connected, the proxy's link brings the person
    back to your app's home page; to bring them back to the page they were on, set its
    `return_to` to that page's absolute URL. The link from `/auth/check` already returns them to
-   the page they opened. Box has no connect step: `403 proxy.upstream_user_unmapped`
-   means Box has no single active, non-admin account with the person's email; show `next_steps`
-   and stop, since only IT can fix it.
+   the page they opened. `403 proxy.upstream_user_unmapped` means the upstream has no account
+   for the person; show `next_steps` and stop, since only IT can fix it.
 5. **What you read as one person, you show only to that person.** The upstream's own
    permissions (a mailbox, row-level security on a Fabric model, a database role) are the
    boundary, and your copy keeps it: key any cache or table you fill from these calls by the
