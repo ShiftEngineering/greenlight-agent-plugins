@@ -209,7 +209,7 @@ truncated }`. Omit `app_id` to use your own personal grant. `inspect.not_inspect
   means its auth mode is not covered yet. For either, fall back to the provider's docs, a
   `greenlight run`, or fixtures. On a user passthrough integration the call runs as the developer;
   `inspect.user_connection_required` means they have not connected yet: ask them to open
-  `details.connect_url`, then rerun.
+  `details.connect_url` (a Greenlight page with a Connect button), then rerun.
 - `inspectAppDb({ app_id, statement, params? })` runs one read-only SQL statement against the app's
   own Postgres and returns columns plus up to 200 rows.
 - `inspectAppBlob({ app_id, action: "list" | "head", prefix?, key? })` lists up to 200 objects in
@@ -533,8 +533,7 @@ the grant is the gate. At MVP:
 - **Granted injected integration** → the real credential, in-process. Live.
 - **User passthrough integration** (Microsoft Graph as the signed-in person) → live as the
   developer, through the same minted token; `greenlight run` prints a connect link for each one
-  they have not connected yet (see _User passthrough integrations_ under _Reaching company
-  data_).
+  they have not connected yet, and the app's own Connect button shows until they do (see the [user-passthrough skill](../user-passthrough/SKILL.md)).
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
 - **Blob** → the [storage skill](../storage/SKILL.md) copy-in client against the proxy
   (`GREENLIGHT_PROXY_URL` + the minted `purpose: 'local'` token). No `STORAGE_*` credential is
@@ -583,7 +582,6 @@ grants: # integration access requests; one entry max per integration
   - integration: <integration-name> # use the real integration names the user/org provides
     credential: <slug> # the credential to bind, by its slug (e.g. crm-readonly); IT registers the slugs — discover integrations and their slugs with listGrantableIntegrations. Not a fixed read/write/access enum.
     reason: Read CRM accounts to prefill expense categories.
-    # user_connection: optional — only on a user passthrough integration (auth_mode user_delegated). Omit it (required) to connect each person before the app renders; optional lets the app render first and send people to connect_url when it needs them.
 
 env: # names only; values go through envSet
   - { name: APPROVAL_SECRET, sensitive: true }
@@ -975,64 +973,15 @@ request that carried it — reuse misattributes data access. Background work (st
 queue consumers, scheduled jobs) has no user and no token: workload attribution is the correct
 outcome there, so never mint or replay a token for it.
 
-### User passthrough integrations: acting as the signed-in person
+### User passthrough integrations
 
-Some integrations reach the upstream **as the person using the app** rather than as a shared
-service identity — Microsoft Graph (mail, calendar, files, directory as the user), Microsoft
-Fabric (the REST API and the API for GraphQL under the person's own workspace role), Power BI
-semantic models (DAX with the model's row-level security), Box (files and folders the person
-can open, with no connect step), and a Fabric Warehouse connected
-database (SQL as the person; the [connected-databases skill](../connected-databases/SKILL.md)
-covers its `/query` route). `listGrantableIntegrations` shows the HTTP ones
-with `auth_category: user-delegated`. A Fabric Warehouse lists as
-`auth_category: connected-database` like any connected database. Each one's `usage_note` says it
-acts as the signed-in user, then gives that upstream's own calling instructions: paths, paging,
-limits, and errors. Read it before writing calls.
-Rules, in order:
-
-1. **Implement no OAuth.** No redirect, no callback, no consent screen, no token storage.
-   Greenlight connects each person to the upstream before the app renders and refreshes their
-   token for them.
-2. **Send the data key and the actor token exactly as received** on every proxy call made while
-   serving a user request — `Authorization: Bearer $GREENLIGHT_DATA_KEY` plus the forwarded
-   `X-Greenlight-Actor-Token`, as above. The proxy swaps them for that person's own upstream
-   token, so the upstream sees that person and enforces their permissions.
-3. **Call the proxy as you would call the upstream** — same paths, same bodies, under
-   `${GREENLIGHT_PROXY_URL}/<integration>/…`, as the integration's `usage_note` describes. **Rewrite
-   absolute paging links** onto the proxy base URL; following one directly leaves the proxy and
-   fails with no token. A `429` arrives with `Retry-After`: wait that long and retry — the proxy
-   does not retry for you. A download that answers `302` to a short-lived pre-authenticated URL is
-   followed without a token and never logged.
-4. **Handle the two "not connected" answers.** `401 proxy.user_connection_required` comes from
-   the proxy when the grant is `user_connection: optional` and the person has not connected, or
-   when their stored token stopped working while the page was open; a fetch from the app's own
-   front end can instead get `401 auth.user_connection_required` from `/auth/check`. Both carry
-   the link in `details.connect_url`. Either way, send the person there and retry once they
-   return — never with another identity. Once connected, the proxy's link brings the person
-   back to your app's home page; to bring them back to the page they were on, set its
-   `return_to` to that page's absolute URL. The link from `/auth/check` already returns them to
-   the page they opened. `403 proxy.upstream_user_unmapped` means the upstream has no account
-   for the person; show `next_steps` and stop, since only IT can fix it.
-5. **What you read as one person, you show only to that person.** The upstream's own
-   permissions (a mailbox, row-level security on a Fabric model, a database role) are the
-   boundary, and your copy keeps it: key any cache or table you fill from these calls by the
-   `X-User-Id` the rows were read as, never pool several people's results into one shared table,
-   and never answer one person's request with rows read as another. Work for a group of people
-   runs once per person, as each of them; a view across people needs a service-identity
-   integration IT granted for that purpose.
-6. **The actor token is read from the request and never stored, queued, or reused.**
-7. **No background work.** A user passthrough integration refuses any call with no present
-   person, so scheduled, queued, or startup work cannot use it. Work that must run with nobody
-   signed in binds a separate service-identity credential and grant, and no feature may assume
-   the app can act for a person who is away.
-8. **Locally, the developer is the person.** `greenlight run` (either mode) and
-   `inspectIntegrationApi` call these integrations as the developer, with real effects: a local
-   send-mail sends from their own mailbox. No actor token exists or is needed locally. The first
-   time, `greenlight run` prints a connect link per integration and starts anyway; ask the
-   developer to open it, then retry, with no restart. `user_connection: required` gates nothing
-   locally, because no sign-in sits in front of a local process, so check the connect redirect on
-   the deployed app (`getAppPreviewUrl`; `curlApp` carries the actor token). Use fixtures when
-   real effects are unwanted.
+Before writing a call that acts as the signed-in person (`auth_category: user-delegated`, such as
+Microsoft Graph, Microsoft Fabric, Power BI or Box), or handling
+`401 proxy.user_connection_required`, read the bundled
+[user-passthrough skill](../user-passthrough/SKILL.md) in full. It owns the calling rules, the
+per-person data rule, the no-background-work rule, local behaviour, and the Connect button every
+such app shows instead of redirecting. Keep following this core skill for the surrounding grant,
+Knowledge, local-development, delivery, and verification workflow.
 
 ### Blob storage
 
