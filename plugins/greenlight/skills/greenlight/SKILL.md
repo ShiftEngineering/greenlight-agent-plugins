@@ -423,9 +423,11 @@ Adapt package-manager commands to the stack you chose; keep the section headings
 **A default dashboard icon.** Every new app ships with `.greenlight/icon.svg` — you author it in
 step 2 above, the same way you author `README.md`, without being asked. Make it simple, distinct,
 tasteful, and reflective of what the app does; legible at dashboard-tile size matters more than
-detail. Hard constraints Greenlight validates at deploy: square (square `viewBox` or square
-`width`/`height`), at least **120×120** logical size, at most **64 KiB**, no `<script>`,
-event-handler attributes, `<foreignObject>`, or external/remote references (no `http(s)`/`//`
+detail. Draw it full-bleed: the background fills the whole square edge to edge, with no rounded
+corners (`rx`) and no outer margin. The dashboard rounds the corners itself, and a pre-rounded
+icon shows mismatched corners. Hard constraints Greenlight validates at deploy: square (square
+`viewBox` or square `width`/`height`), at least **120×120** logical size, at most **64 KiB**, no
+`<script>`, event-handler attributes, `<foreignObject>`, or external/remote references (no `http(s)`/`//`
 `href` or `url()`); SVG only at MVP, authored deterministically as text. Omitting the file is
 normal — the `/apps` dashboard tile falls back to the generated monogram — and an invalid file is
 ignored rather than failing the deploy; those are the only two "no icon" outcomes, not something to
