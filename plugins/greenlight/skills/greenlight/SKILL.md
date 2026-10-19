@@ -124,6 +124,11 @@ a `grants:` entry naming an unregistered integration is refused at merge, and th
 org's available slugs, so a mistyped or abbreviated slug is correctable from the error alone (see
 _A complete greenlight.yml_).
 
+**A public data source is not an unconnected company system.** When the app only pulls from a
+public, low-risk publisher — no account, no key, nothing written back, and not where the company
+keeps its own records — call that publisher directly. Do not invent an integration for it, and do
+not send the user to Integrations to add one. The bar is in _Public read-only data_.
+
 **Do not offer to request a new connection.** You cannot file one, and neither can the user from
 inside their agent. Point at IT and stop there; promising a request you can't make is worse than
 saying you can't.
@@ -656,8 +661,10 @@ work graduates into a real app, `registerApp` and declare the app's own `grants:
 ## Asking IT to connect a system
 
 When the user needs data from a system the company has **not** connected, `listGrantableIntegrations`
-simply will not list it. Say so plainly — it is not connected, here is what is — and then, if the
-system is one Greenlight catalogues, offer to ask IT for it:
+simply will not list it. A public source the app only reads is not one of these — call it directly
+(_Public read-only data_); do not file a connection request for it. For a real company system, say
+so plainly — it is not connected, here is what is — and then, if the system is one Greenlight
+catalogues, offer to ask IT for it:
 
 - **File it** with `requestIntegrationConnection({ catalog_key, reason })` (or
   `greenlight integrations connect --key <catalog_key> --reason "..."`). Write the reason in the
@@ -741,9 +748,10 @@ give them a download or a selectable text area — not only a "copy" button.
 
 - **Never hardcode a credential, connection string, or API key.** Greenlight injects every secret
   at deploy time. A secret in source is a security incident, and the pipeline will block it.
-- **Never provision cloud infrastructure directly, and never reach an external service directly.**
-  Databases, storage, and integration access are _declared_ in `greenlight.yml` and applied when a
-  pull request merges. Company data is reached only through the Greenlight proxy.
+- **Never provision cloud infrastructure directly.** Databases, storage, and access to company
+  systems are _declared_ in `greenlight.yml` and applied when a pull request merges. Company data
+  is reached only through the Greenlight proxy. A public source the app only reads is the
+  exception in _Public read-only data_.
 
 ## Environment variables: which names exist, and what is safe to expose
 
@@ -920,6 +928,32 @@ and route. The contract (some items pipeline-enforced, others recommended):
 - **Dashboard icon: authored earlier, not here.** `.greenlight/icon.svg` is authored as a default
   step of the new-app loop (see _A default dashboard icon_ under _How work flows_), the same way
   `README.md` is — not a decision to make at packaging time.
+
+## Public read-only data
+
+The proxy rule is for company systems. It does not cover a public data source the app only pulls
+from.
+
+Call the publisher's URL with ordinary HTTPS from the app. Do not add a `grants:` entry, do not
+send the call through `GREENLIGHT_PROXY_URL`, and do not ask the user or IT to register the
+publisher as an integration. Do not route it through the proxy just to keep the call on record.
+
+While app egress is unrestricted — the default — that call works. Do not tell the user it will
+fail on a current install, and do not promise it still will if their company later locks outbound
+traffic down.
+
+All of these have to be true:
+
+- **Public and low risk.** Anyone can read it without an account or a key, and reading it does not
+  move company data. A vendor API that merely happens to answer without a key is not this.
+- **Pull only.** The app downloads or queries. It does not create, update, post, or delete there.
+- **Not a system of record.** The company does not keep its own records there. What the app needs
+  to remember goes in its own postgres or blob. The public source is an input.
+
+A national open-data portal, a public patent register, or a published statistical series fits. A
+CRM, a ticketing system, a mailbox, or any API that wants a credential does not — those stay in
+_Reaching company data_, including when the company has not connected them yet. If
+`listGrantableIntegrations` already lists the source, use that grant instead of calling around it.
 
 ## Reaching company data
 
@@ -1191,5 +1225,6 @@ their actual task.
 ## Scope
 
 This skill covers Greenlight-governed app work only. Defer everything else to your other tools:
-general coding questions, apps Greenlight does not manage, and anything that wants to reach GitHub,
-a cloud console, or a data provider directly — Greenlight is the path for all three.
+general coding questions, apps Greenlight does not manage, and anything that wants you to reach
+GitHub, a cloud console, or a company data provider yourself — Greenlight is the path for all
+three. An app pulling public read-only data is in scope; see _Public read-only data_.
