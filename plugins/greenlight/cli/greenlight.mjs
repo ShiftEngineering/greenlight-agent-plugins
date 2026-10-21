@@ -18923,7 +18923,8 @@ import { createHash as createHash5 } from "node:crypto";
 import { mkdirSync as mkdirSync4, readFileSync as readFileSync6, renameSync as renameSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join4 } from "node:path";
-var OFF = { feedback_observer_reports: false };
+var FLAG_NAMES = ["feedback_observer_reports", "agent_token_usage_reports"];
+var OFF = { feedback_observer_reports: false, agent_token_usage_reports: false };
 var TTL_MS = 10 * 60 * 1e3;
 var FAILURE_TTL_MS = 60 * 1e3;
 var READ_TIMEOUT_MS = 2e3;
@@ -18940,8 +18941,10 @@ async function readHookFlags(apiBase, deps = {}) {
   let ttl = FAILURE_TTL_MS;
   try {
     const body = await withTimeout((deps.fetchFlags ?? fetchFlags)(apiBase), READ_TIMEOUT_MS);
+    const fields = body !== null && typeof body === "object" ? body : {};
     flags = {
-      feedback_observer_reports: !!body && typeof body === "object" && body["feedback_observer_reports"] === true
+      feedback_observer_reports: fields["feedback_observer_reports"] === true,
+      agent_token_usage_reports: fields["agent_token_usage_reports"] === true
     };
     ttl = TTL_MS;
   } catch {
@@ -18968,7 +18971,7 @@ function withTimeout(promise, ms) {
 function readCache(path) {
   try {
     const parsed = JSON.parse(readFileSync6(path, "utf8"));
-    return typeof parsed.expires_at === "number" && typeof parsed.flags?.feedback_observer_reports === "boolean" ? parsed : void 0;
+    return typeof parsed.expires_at === "number" && FLAG_NAMES.every((name) => typeof parsed.flags?.[name] === "boolean") ? parsed : void 0;
   } catch {
     return void 0;
   }
