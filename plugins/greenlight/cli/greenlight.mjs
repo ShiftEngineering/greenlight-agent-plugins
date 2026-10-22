@@ -2216,20 +2216,20 @@ var require_resolve = __commonJS({
       return false;
     }
     function countKeys(schema) {
-      let count = 0;
+      let count2 = 0;
       for (const key in schema) {
         if (key === "$ref")
           return Infinity;
-        count++;
+        count2++;
         if (SIMPLE_INLINED.has(key))
           continue;
         if (typeof schema[key] == "object") {
-          (0, util_1.eachItem)(schema[key], (sch) => count += countKeys(sch));
+          (0, util_1.eachItem)(schema[key], (sch) => count2 += countKeys(sch));
         }
-        if (count === Infinity)
+        if (count2 === Infinity)
           return Infinity;
       }
-      return count;
+      return count2;
     }
     function getFullPath(resolver, id = "", normalize) {
       if (normalize !== false)
@@ -5711,8 +5711,8 @@ var require_contains = __commonJS({
         cxt.result(valid, () => cxt.reset());
         function validateItemsWithCount() {
           const schValid = gen.name("_valid");
-          const count = gen.let("count", 0);
-          validateItems(schValid, () => gen.if(schValid, () => checkLimits(count)));
+          const count2 = gen.let("count", 0);
+          validateItems(schValid, () => gen.if(schValid, () => checkLimits(count2)));
         }
         function validateItems(_valid, block) {
           gen.forRange("i", 0, len, (i) => {
@@ -5725,16 +5725,16 @@ var require_contains = __commonJS({
             block();
           });
         }
-        function checkLimits(count) {
-          gen.code((0, codegen_1._)`${count}++`);
+        function checkLimits(count2) {
+          gen.code((0, codegen_1._)`${count2}++`);
           if (max === void 0) {
-            gen.if((0, codegen_1._)`${count} >= ${min}`, () => gen.assign(valid, true).break());
+            gen.if((0, codegen_1._)`${count2} >= ${min}`, () => gen.assign(valid, true).break());
           } else {
-            gen.if((0, codegen_1._)`${count} > ${max}`, () => gen.assign(valid, false).break());
+            gen.if((0, codegen_1._)`${count2} > ${max}`, () => gen.assign(valid, false).break());
             if (min === 1)
               gen.assign(valid, true);
             else
-              gen.if((0, codegen_1._)`${count} >= ${min}`, () => gen.assign(valid, true));
+              gen.if((0, codegen_1._)`${count2} >= ${min}`, () => gen.assign(valid, true));
           }
         }
       }
@@ -16427,17 +16427,17 @@ function atomicWrite(path, data) {
   }
   renameSync(tmp, path);
 }
-function withFileLock(lockPath2, fn) {
+function withFileLock(lockPath3, fn) {
   const start = Date.now();
   for (; ; ) {
     try {
-      closeSync(openSync(lockPath2, "wx"));
+      closeSync(openSync(lockPath3, "wx"));
       break;
     } catch (err) {
       if (err.code !== "EEXIST") throw err;
       if (Date.now() - start > LOCK_TIMEOUT_MS) {
         try {
-          unlinkSync(lockPath2);
+          unlinkSync(lockPath3);
         } catch {
         }
       } else {
@@ -16449,7 +16449,7 @@ function withFileLock(lockPath2, fn) {
     return fn();
   } finally {
     try {
-      unlinkSync(lockPath2);
+      unlinkSync(lockPath3);
     } catch {
     }
   }
@@ -18381,6 +18381,10 @@ var LOCAL_COMMANDS = [
     "observe-hook",
     "Run by the Claude Code plugin's Stop / SessionEnd hook with the hook JSON on stdin. Not for direct use."
   ],
+  [
+    "token-usage-hook",
+    "Run by the Claude Code plugin's SessionEnd / SessionStart hook with the hook JSON on stdin. Not for direct use."
+  ],
   ["help [command]", "Show this help, or a command's flags."]
 ];
 function helpText() {
@@ -19167,8 +19171,412 @@ function readStdin2() {
   });
 }
 
+// packages/cli/src/commands/token-usage-hook.ts
+import { spawn as spawn4 } from "node:child_process";
+import {
+  closeSync as closeSync4,
+  mkdirSync as mkdirSync6,
+  openSync as openSync4,
+  readdirSync as readdirSync2,
+  readFileSync as readFileSync8,
+  readSync as readSync2,
+  renameSync as renameSync4,
+  statSync as statSync3,
+  unlinkSync as unlinkSync5,
+  writeFileSync as writeFileSync4
+} from "node:fs";
+import { basename, dirname as dirname4, isAbsolute as isAbsolute2, join as join6 } from "node:path";
+
+// packages/cli/src/token-usage/transcript.ts
+var TOKEN_CLASSES = [
+  "input_tokens",
+  "output_tokens",
+  "cache_write_5m_tokens",
+  "cache_write_1h_tokens",
+  "cache_read_tokens"
+];
+var MAX_USAGE_ROWS = 32;
+var MODEL = /^[A-Za-z0-9][A-Za-z0-9._:@[\]/-]{0,127}$/;
+var LONG_PROMPT_THRESHOLDS = [
+  [/claude-haiku-5-5/i, 1e5]
+];
+var SPEED_TIERS = /* @__PURE__ */ new Set(["fast", "ultrafast"]);
+var emptyUsageState = () => ({ files: {}, totals: {} });
+var emptyFileScan = () => ({ offset: 0, counted: [] });
+var zero = () => ({
+  input_tokens: 0,
+  output_tokens: 0,
+  cache_write_5m_tokens: 0,
+  cache_write_1h_tokens: 0,
+  cache_read_tokens: 0
+});
+function completeLines2(text) {
+  const end = text.lastIndexOf("\n");
+  if (end < 0) return { lines: [], consumedBytes: 0 };
+  const complete = text.slice(0, end + 1);
+  return { lines: complete.split("\n"), consumedBytes: Buffer.byteLength(complete, "utf8") };
+}
+function scanUsageLines(state, scan, lines) {
+  const counted = new Set(scan.counted);
+  for (const line of lines) {
+    if (!line.includes('"usage"') && !line.includes('"timestamp"')) continue;
+    let record2;
+    try {
+      record2 = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    noteTimestamp(state, record2["timestamp"]);
+    if (record2["type"] !== "assistant") continue;
+    const message2 = asObject(record2["message"]);
+    const id = message2?.["id"];
+    const model = message2?.["model"];
+    const usage = asObject(message2?.["usage"]);
+    if (typeof id !== "string" || typeof model !== "string" || !usage || !MODEL.test(model)) {
+      continue;
+    }
+    const parts = partsOf(model, usage);
+    if (scan.last?.id === id) {
+      for (const [key, counts] of Object.entries(parts)) {
+        const before = scan.last.parts[key] ?? zero();
+        const total = state.totals[key] ??= zero();
+        for (const cls of TOKEN_CLASSES) {
+          const grown = counts[cls] - before[cls];
+          if (grown > 0) total[cls] += grown;
+        }
+        scan.last.parts[key] = maxOf(before, counts);
+      }
+      continue;
+    }
+    if (counted.has(id)) continue;
+    counted.add(id);
+    scan.counted.push(id);
+    for (const [key, counts] of Object.entries(parts))
+      addInto(state.totals[key] ??= zero(), counts);
+    scan.last = { id, parts };
+  }
+}
+function usageRows(state) {
+  const rows = [];
+  for (const [key, counts] of Object.entries(state.totals)) {
+    if (TOKEN_CLASSES.every((cls) => counts[cls] === 0)) continue;
+    const [model = "", variant = ""] = key.split("|");
+    rows.push({ model, ...variant ? { variant } : {}, ...counts });
+  }
+  const size = (row) => TOKEN_CLASSES.reduce((sum, cls) => sum + row[cls], 0);
+  return rows.sort((a, b) => size(b) - size(a)).slice(0, MAX_USAGE_ROWS);
+}
+function partsOf(model, usage) {
+  const speed = typeof usage["speed"] === "string" ? usage["speed"] : "standard";
+  const iterations = Array.isArray(usage["iterations"]) ? usage["iterations"].map(asObject).filter((it) => it !== void 0) : [];
+  const requests = iterations.length > 0 ? iterations : [usage];
+  const threshold = LONG_PROMPT_THRESHOLDS.find(([pattern]) => pattern.test(model))?.[1];
+  const parts = {};
+  for (const request of requests) {
+    const counts = countsOf(request);
+    const prompt = counts.input_tokens + counts.cache_read_tokens + counts.cache_write_5m_tokens + counts.cache_write_1h_tokens;
+    const long = threshold !== void 0 && prompt > threshold;
+    const tier = SPEED_TIERS.has(speed) ? speed : "";
+    const variant = [tier, long ? "long_prompt" : ""].filter(Boolean).join("_");
+    addInto(parts[`${model}|${variant}`] ??= zero(), counts);
+  }
+  return parts;
+}
+function countsOf(usage) {
+  const split = asObject(usage["cache_creation"]);
+  const written = count(usage["cache_creation_input_tokens"]);
+  const oneHour = split ? count(split["ephemeral_1h_input_tokens"]) : 0;
+  const fiveMinute = split ? Math.max(count(split["ephemeral_5m_input_tokens"]), written - oneHour) : written;
+  return {
+    input_tokens: count(usage["input_tokens"]),
+    output_tokens: count(usage["output_tokens"]),
+    cache_write_5m_tokens: fiveMinute,
+    cache_write_1h_tokens: oneHour,
+    cache_read_tokens: count(usage["cache_read_input_tokens"])
+  };
+}
+function noteTimestamp(state, value) {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) return;
+  const at = new Date(value).toISOString();
+  if (!state.startedAt || at < state.startedAt) state.startedAt = at;
+  if (!state.endedAt || at > state.endedAt) state.endedAt = at;
+}
+function addInto(target, counts) {
+  for (const cls of TOKEN_CLASSES) target[cls] += counts[cls];
+}
+function maxOf(a, b) {
+  const out = zero();
+  for (const cls of TOKEN_CLASSES) out[cls] = Math.max(a[cls], b[cls]);
+  return out;
+}
+var count = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
+var asObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+
+// packages/cli/src/commands/token-usage-hook.ts
+var SESSION_ID2 = /^[A-Za-z0-9_-]{1,128}$/;
+var APP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var EVENTS = /* @__PURE__ */ new Set(["SessionEnd", "SessionStart"]);
+var RETRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1e3;
+var STALE_LOCK_MS = 2 * 60 * 1e3;
+var END_LOCK_WAIT_MS = 60 * 1e3;
+var LOCK_POLL_MS = 250;
+var STDIN_TIMEOUT_MS2 = 1e3;
+var SEND_TIMEOUT_MS = 1e4;
+var FINAL_REFUSALS = /* @__PURE__ */ new Set([400, 403, 404]);
+async function cmdTokenUsageHook(resolveApiBase2, args, deps = {}) {
+  try {
+    const apiBase = resolveApiBase2();
+    if (args[0] === "--job" && typeof args[1] === "string") {
+      await runJob2(apiBase, args[1], deps);
+    } else if (!(deps.env ?? process.env)[OBSERVER_CHILD_ENV]) {
+      await handOff(apiBase, deps);
+    }
+  } catch {
+  }
+  return 0;
+}
+async function handOff(apiBase, deps) {
+  const input = JSON.parse(await (deps.readStdin ?? readStdin3)());
+  const event = input["hook_event_name"];
+  const sessionId = input["session_id"];
+  const transcript = input["transcript_path"];
+  const cwd = input["cwd"];
+  if (typeof event !== "string" || !EVENTS.has(event)) return;
+  if (typeof sessionId !== "string" || !SESSION_ID2.test(sessionId)) return;
+  if (typeof transcript !== "string" || !isAbsolute2(transcript)) return;
+  const job = {
+    event,
+    session_id: sessionId,
+    transcript_path: transcript,
+    ...typeof cwd === "string" && isAbsolute2(cwd) ? { cwd } : {}
+  };
+  const jobPath = join6(sessionsDir2(apiBase), `${sessionId}.${event}.job.json`);
+  saveJson2(jobPath, job);
+  (deps.startChild ?? startDetachedChild2)(jobPath);
+}
+async function runJob2(apiBase, jobPath, deps) {
+  const job = readJson2(jobPath);
+  unlinkQuiet2(jobPath);
+  if (!job || !SESSION_ID2.test(job.session_id) || !isAbsolute2(job.transcript_path)) return;
+  const flags = await (deps.readFlags ?? readHookFlags)(apiBase);
+  if (!flags.agent_token_usage_reports) return;
+  const now = (deps.now ?? Date.now)();
+  pruneOldState2(apiBase, now);
+  const ending = job.event === "SessionEnd";
+  await withSessionLock(apiBase, job.session_id, ending ? END_LOCK_WAIT_MS : 0, async () => {
+    const record2 = loadRecord(apiBase, job.session_id) ?? {
+      transcript: job.transcript_path,
+      created_at: now,
+      ended: false,
+      refused: false,
+      usage: emptyUsageState()
+    };
+    record2.transcript = job.transcript_path;
+    if (job.cwd) record2.cwd = job.cwd;
+    if (ending) record2.ended = true;
+    saveRecord(apiBase, job.session_id, record2);
+    if (ending) await report(apiBase, job.session_id, record2, deps);
+  });
+  if (!ending) await sweep(apiBase, job.session_id, deps);
+}
+async function sweep(apiBase, current, deps) {
+  for (const sessionId of recordedSessions(apiBase)) {
+    if (sessionId === current) continue;
+    await withSessionLock(apiBase, sessionId, 0, async () => {
+      const record2 = loadRecord(apiBase, sessionId);
+      if (record2) await report(apiBase, sessionId, record2, deps);
+    });
+  }
+}
+async function report(apiBase, sessionId, record2, deps) {
+  if (record2.refused) return;
+  const appId = record2.app_id ?? (record2.cwd ? findAppId(record2.cwd) : null);
+  if (!appId || !APP_ID.test(appId)) {
+    if (record2.ended) forget(apiBase, sessionId);
+    return;
+  }
+  for (const file of transcriptFiles(record2.transcript, sessionId)) {
+    const scan = record2.usage.files[file] ??= emptyFileScan();
+    const { lines, consumedBytes } = completeLines2(readFrom2(file, scan.offset));
+    scanUsageLines(record2.usage, scan, lines);
+    scan.offset += consumedBytes;
+  }
+  saveRecord(apiBase, sessionId, record2);
+  const usage = usageRows(record2.usage);
+  const { startedAt, endedAt } = record2.usage;
+  if (usage.length === 0 || !startedAt || !endedAt) return;
+  const body = {
+    app_id: appId,
+    client: "claude-code",
+    client_session_id: sessionId,
+    started_at: startedAt,
+    ended_at: endedAt,
+    usage
+  };
+  const json = JSON.stringify(body);
+  if (record2.sent === json) return;
+  record2.app_id = appId;
+  const status = await (deps.send ?? sendReport)(apiBase, body).catch(() => 0);
+  if (status === 200) record2.sent = json;
+  else if (FINAL_REFUSALS.has(status)) record2.refused = true;
+  saveRecord(apiBase, sessionId, record2);
+}
+async function sendReport(apiBase, body) {
+  const token = await getAccessToken(apiBase);
+  const res = await jsonRequest("POST", `${apiBase}/api/cli/token-usage`, {
+    token,
+    body,
+    timeoutMs: SEND_TIMEOUT_MS
+  });
+  return res.status;
+}
+function transcriptFiles(transcript, sessionId) {
+  const files = [transcript];
+  const subagents = join6(dirname4(transcript), sessionId, "subagents");
+  try {
+    for (const name of readdirSync2(subagents).sort()) {
+      if (name.endsWith(".jsonl")) files.push(join6(subagents, name));
+    }
+  } catch {
+  }
+  return files;
+}
+function startDetachedChild2(jobPath) {
+  const cli = process.argv[1];
+  if (!cli) return;
+  const child = spawn4(process.execPath, [cli, "token-usage-hook", "--job", jobPath], {
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+}
+var sessionsDir2 = (apiBase) => join6(hookStateDir(apiBase), "token-usage");
+var recordPath = (apiBase, sessionId) => join6(sessionsDir2(apiBase), `${sessionId}.json`);
+var lockPath2 = (apiBase, sessionId) => join6(sessionsDir2(apiBase), `${sessionId}.lock`);
+function recordedSessions(apiBase) {
+  try {
+    return readdirSync2(sessionsDir2(apiBase)).filter((name) => name.endsWith(".json") && !name.endsWith(".job.json")).map((name) => basename(name, ".json")).filter((id) => SESSION_ID2.test(id));
+  } catch {
+    return [];
+  }
+}
+function loadRecord(apiBase, sessionId) {
+  const record2 = readJson2(recordPath(apiBase, sessionId));
+  return record2 && typeof record2.transcript === "string" && record2.usage ? record2 : void 0;
+}
+function saveRecord(apiBase, sessionId, record2) {
+  saveJson2(recordPath(apiBase, sessionId), record2);
+}
+function forget(apiBase, sessionId) {
+  unlinkQuiet2(recordPath(apiBase, sessionId));
+}
+function pruneOldState2(apiBase, now) {
+  const dir = sessionsDir2(apiBase);
+  let names;
+  try {
+    names = readdirSync2(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const path = join6(dir, name);
+    try {
+      const record2 = name.endsWith(".job.json") ? void 0 : readJson2(path);
+      const since = typeof record2?.created_at === "number" ? record2.created_at : statSync3(path).mtimeMs;
+      if (now - since > RETRY_WINDOW_MS) unlinkSync5(path);
+    } catch {
+    }
+  }
+}
+async function withSessionLock(apiBase, sessionId, waitMs, fn) {
+  const path = lockPath2(apiBase, sessionId);
+  const deadline = Date.now() + waitMs;
+  for (; ; ) {
+    if (claim2(path)) break;
+    if (lockAge(path) > STALE_LOCK_MS) {
+      unlinkQuiet2(path);
+      continue;
+    }
+    if (Date.now() >= deadline) return;
+    await new Promise((resolve2) => setTimeout(resolve2, LOCK_POLL_MS));
+  }
+  try {
+    await fn();
+  } finally {
+    unlinkQuiet2(path);
+  }
+}
+function lockAge(path) {
+  try {
+    return Date.now() - statSync3(path).mtimeMs;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+function claim2(path) {
+  try {
+    mkdirSync6(dirname4(path), { recursive: true, mode: 448 });
+    closeSync4(openSync4(path, "wx", 384));
+    return true;
+  } catch {
+    return false;
+  }
+}
+function readFrom2(path, offset) {
+  let fd;
+  try {
+    fd = openSync4(path, "r");
+  } catch {
+    return "";
+  }
+  try {
+    const size = statSync3(path).size;
+    if (size <= offset) return "";
+    const buffer = Buffer.alloc(size - offset);
+    readSync2(fd, buffer, 0, buffer.length, offset);
+    return buffer.toString("utf8");
+  } finally {
+    closeSync4(fd);
+  }
+}
+function readJson2(path) {
+  try {
+    return JSON.parse(readFileSync8(path, "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+function saveJson2(path, value) {
+  mkdirSync6(dirname4(path), { recursive: true, mode: 448 });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync4(tmp, JSON.stringify(value), { mode: 384 });
+  renameSync4(tmp, path);
+}
+function unlinkQuiet2(path) {
+  try {
+    unlinkSync5(path);
+  } catch {
+  }
+}
+function readStdin3() {
+  return new Promise((resolve2, reject) => {
+    let data = "";
+    const timer = setTimeout(() => reject(new Error("no hook input")), STDIN_TIMEOUT_MS2);
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => data += chunk);
+    process.stdin.on("end", () => {
+      clearTimeout(timer);
+      resolve2(data);
+    });
+    process.stdin.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
 // packages/cli/src/auth-inflight.ts
-import { closeSync as closeSync4, fsyncSync as fsyncSync3, openSync as openSync4, unlinkSync as unlinkSync5, writeSync as writeSync3 } from "node:fs";
+import { closeSync as closeSync5, fsyncSync as fsyncSync3, openSync as openSync5, unlinkSync as unlinkSync6, writeSync as writeSync3 } from "node:fs";
 import { hostname as hostname3 } from "node:os";
 var markerPath = (apiBase) => authStatePath(apiBase, "inflight");
 var MAX_INFLIGHT_AGE_MS = 12e4;
@@ -19192,7 +19600,7 @@ function releaseInflight(apiBase) {
   if (existing === void 0) return;
   if (existing.pid !== process.pid || existing.host !== hostname3()) return;
   try {
-    unlinkSync5(markerPath(apiBase));
+    unlinkSync6(markerPath(apiBase));
   } catch {
   }
 }
@@ -19207,19 +19615,19 @@ function inflightExpired(holder) {
 }
 function write(apiBase, holder) {
   ensureAuthStateDir();
-  const fd = openSync4(markerPath(apiBase), "w", 384);
+  const fd = openSync5(markerPath(apiBase), "w", 384);
   try {
     writeSync3(fd, JSON.stringify(holder));
     fsyncSync3(fd);
   } finally {
-    closeSync4(fd);
+    closeSync5(fd);
   }
 }
 
 // packages/cli/src/oauth/browser.ts
-import { spawn as spawn4 } from "node:child_process";
+import { spawn as spawn5 } from "node:child_process";
 import { accessSync, constants } from "node:fs";
-import { delimiter, join as join6 } from "node:path";
+import { delimiter, join as join7 } from "node:path";
 var LAUNCH_BOUND_MS = 400;
 function openerCommand() {
   if (process.platform === "win32") {
@@ -19234,7 +19642,7 @@ function resolveBrowserOpener() {
   return path === void 0 ? void 0 : { path, leadingArgs };
 }
 function onPath(command) {
-  const candidates = /[/\\]/.test(command) ? [command] : (process.env["PATH"] ?? "").split(delimiter).filter((dir) => dir.length > 0).map((dir) => join6(dir, command));
+  const candidates = /[/\\]/.test(command) ? [command] : (process.env["PATH"] ?? "").split(delimiter).filter((dir) => dir.length > 0).map((dir) => join7(dir, command));
   const extensions = process.platform === "win32" ? (process.env["PATHEXT"] ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((e) => e.length > 0) : [""];
   for (const candidate of candidates) {
     for (const extension of extensions) {
@@ -19264,7 +19672,7 @@ function launchBrowserOpener(opener, url2, boundMs = LAUNCH_BOUND_MS) {
     }, boundMs);
     if (typeof timer.unref === "function") timer.unref();
     try {
-      child = spawn4(opener.path, [...opener.leadingArgs, url2.toString()], {
+      child = spawn5(opener.path, [...opener.leadingArgs, url2.toString()], {
         stdio: "ignore",
         detached: true,
         shell: false
@@ -19808,9 +20216,9 @@ function inspect(apiBase, afterObserving) {
   if (pending !== void 0 && pending.expiresAt > Date.now()) {
     return { kind: "resume", pending };
   }
-  const claim2 = claimInflight(apiBase, note);
-  if (!claim2.claimed) return { kind: "observe", holder: claim2.holder };
-  return { kind: "claimed", browser: claim2.reclaimedFrom !== void 0 || !afterObserving };
+  const claim3 = claimInflight(apiBase, note);
+  if (!claim3.claimed) return { kind: "observe", holder: claim3.holder };
+  return { kind: "claimed", browser: claim3.reclaimedFrom !== void 0 || !afterObserving };
 }
 async function waitOutHolder(apiBase, holder, budgetMs) {
   note(
@@ -20077,6 +20485,7 @@ async function main(argv) {
     return 0;
   }
   if (command === "observe-hook") return cmdObserveHook(resolveApiBase, rest);
+  if (command === "token-usage-hook") return cmdTokenUsageHook(resolveApiBase, rest);
   if (SINGLE_WORD_AUTH.has(command)) {
     const apiBase = resolveApiBase();
     if (command === "login") {

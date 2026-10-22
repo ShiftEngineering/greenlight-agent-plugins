@@ -18,6 +18,22 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli/greenlight.mjs\" observe-hook",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli/greenlight.mjs\" token-usage-hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli/greenlight.mjs\" token-usage-hook",
+            "timeout": 5
           }
         ]
       }
