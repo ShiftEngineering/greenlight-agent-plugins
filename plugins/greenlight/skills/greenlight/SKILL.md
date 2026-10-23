@@ -955,6 +955,18 @@ CRM, a ticketing system, a mailbox, or any API that wants a credential does not 
 _Reaching company data_, including when the company has not connected them yet. If
 `listGrantableIntegrations` already lists the source, use that grant instead of calling around it.
 
+**When the call fails on the certificate.** Some publishers serve their certificate without the
+intermediate that links it to a trusted root. Browsers fill the gap; Node does not, so `fetch` fails
+with `UNABLE_TO_VERIFY_LEAF_SIGNATURE` or `unable to get local issuer certificate`. Download the
+missing intermediate from the issuing CA (its URL is in the server certificate's Authority
+Information Access field; if it chains to a root Node does not ship, add the next certificate up the
+same way until it reaches one Node trusts), commit them to the app as one PEM file, and trust it
+for that call only: an
+undici `Agent` whose `connect.ca` is `[...tls.rootCertificates, pem]`, passed as `fetch`'s
+`dispatcher`, or `NODE_EXTRA_CA_CERTS` pointing at the file. Never set
+`NODE_TLS_REJECT_UNAUTHORIZED=0` or `rejectUnauthorized: false`: that turns off checking for every
+call the app makes.
+
 ## Reaching company data
 
 A granted integration reaches its upstream one of two ways, set per-integration by its
