@@ -858,13 +858,13 @@ and route. The contract (some items pipeline-enforced, others recommended):
   images build, push, and pull faster; identical bases mean the registry and nodes already hold
   those layers, so later builds and deploys hit cache. Don't invent a bespoke base per app.
   Defaults by runtime (override only when the org says so):
-  - **Node:** `node:20-alpine` (or `node:22-alpine`).
+  - **Node:** `node:26-alpine`.
   - **Static / SPA / reverse proxy:** `nginxinc/nginx-unprivileged:alpine` — already non-root and
     `/tmp`-friendly under the security posture below (plain `nginx:alpine` needs the `/tmp` tweaks).
-  - **Python:** `python:3.12-slim` (Debian slim), **not** `python:3.12-alpine` — musl forces many
+  - **Python:** `python:3.14-slim` (Debian slim), **not** `python:3.14-alpine` — musl forces many
     wheels to recompile from source, so slim is the faster, more reliable default.
   - **Go / Rust / other compiled:** multi-stage build, static binary copied into
-    `gcr.io/distroless/static` or `alpine:3.20`.
+    `gcr.io/distroless/static` or `alpine:3.24`.
 
   Keep deps in their own layer (copy lockfiles and install _before_ copying source) so an unchanged
   dependency set stays cached across builds.
