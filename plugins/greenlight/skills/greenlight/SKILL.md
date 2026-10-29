@@ -1054,6 +1054,15 @@ source to work out endpoints, params, and the auth slot yourself, confirm it aga
 (`inspectIntegrationApi` makes one without handing you the credential), and then `knowledgePropose` an integration-scope entry so the next agent doesn't repeat the dig
 (see _Starting from an idea_). Never fall back to hardcoded assumptions baked into this file.
 
+### Large data and performance
+
+Before building a list, summary, or chart over data that can grow past a few hundred rows, a CSV
+export, or a cache of upstream results — or when a deployed app is slow, fails to load its data,
+hits `429`, or hits the connected-database execution cap — read the bundled
+[performance skill](../performance/SKILL.md) in full. It owns aggregating in the source,
+server-side paging, caching, exports, and the platform limits those patterns are sized against. Keep following this core skill for the
+surrounding Greenlight grant, Knowledge, local-development, delivery, and verification workflow.
+
 ### The org user directory (`greenlight-directory`)
 
 For multi-user features — an assignee dropdown, a "request approval from…" picker, @-mentions,
