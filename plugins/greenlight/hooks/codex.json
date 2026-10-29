@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/cli/greenlight.mjs\" token-usage-hook --client codex",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/cli/greenlight.mjs\" token-usage-hook --client codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

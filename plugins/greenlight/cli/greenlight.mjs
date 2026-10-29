@@ -2216,20 +2216,20 @@ var require_resolve = __commonJS({
       return false;
     }
     function countKeys(schema) {
-      let count2 = 0;
+      let count3 = 0;
       for (const key in schema) {
         if (key === "$ref")
           return Infinity;
-        count2++;
+        count3++;
         if (SIMPLE_INLINED.has(key))
           continue;
         if (typeof schema[key] == "object") {
-          (0, util_1.eachItem)(schema[key], (sch) => count2 += countKeys(sch));
+          (0, util_1.eachItem)(schema[key], (sch) => count3 += countKeys(sch));
         }
-        if (count2 === Infinity)
+        if (count3 === Infinity)
           return Infinity;
       }
-      return count2;
+      return count3;
     }
     function getFullPath(resolver, id = "", normalize) {
       if (normalize !== false)
@@ -5711,8 +5711,8 @@ var require_contains = __commonJS({
         cxt.result(valid, () => cxt.reset());
         function validateItemsWithCount() {
           const schValid = gen.name("_valid");
-          const count2 = gen.let("count", 0);
-          validateItems(schValid, () => gen.if(schValid, () => checkLimits(count2)));
+          const count3 = gen.let("count", 0);
+          validateItems(schValid, () => gen.if(schValid, () => checkLimits(count3)));
         }
         function validateItems(_valid, block) {
           gen.forRange("i", 0, len, (i) => {
@@ -5725,16 +5725,16 @@ var require_contains = __commonJS({
             block();
           });
         }
-        function checkLimits(count2) {
-          gen.code((0, codegen_1._)`${count2}++`);
+        function checkLimits(count3) {
+          gen.code((0, codegen_1._)`${count3}++`);
           if (max === void 0) {
-            gen.if((0, codegen_1._)`${count2} >= ${min}`, () => gen.assign(valid, true).break());
+            gen.if((0, codegen_1._)`${count3} >= ${min}`, () => gen.assign(valid, true).break());
           } else {
-            gen.if((0, codegen_1._)`${count2} > ${max}`, () => gen.assign(valid, false).break());
+            gen.if((0, codegen_1._)`${count3} > ${max}`, () => gen.assign(valid, false).break());
             if (min === 1)
               gen.assign(valid, true);
             else
-              gen.if((0, codegen_1._)`${count2} >= ${min}`, () => gen.assign(valid, true));
+              gen.if((0, codegen_1._)`${count3} >= ${min}`, () => gen.assign(valid, true));
           }
         }
       }
@@ -18382,8 +18382,8 @@ var LOCAL_COMMANDS = [
     "Run by the Claude Code plugin's Stop / SessionEnd hook with the hook JSON on stdin. Not for direct use."
   ],
   [
-    "token-usage-hook",
-    "Run by the Claude Code plugin's SessionEnd / SessionStart hook with the hook JSON on stdin. Not for direct use."
+    "token-usage-hook [--client codex|cursor]",
+    "Run by the plugin's session end / start hook in Claude Code, Codex, or Cursor with the hook JSON on stdin. Not for direct use."
   ],
   ["help [command]", "Show this help, or a command's flags."]
 ];
@@ -19185,6 +19185,7 @@ import {
   unlinkSync as unlinkSync5,
   writeFileSync as writeFileSync4
 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
 import { basename, dirname as dirname4, isAbsolute as isAbsolute2, join as join6 } from "node:path";
 
 // packages/cli/src/token-usage/transcript.ts
@@ -19312,10 +19313,78 @@ function maxOf(a, b) {
 var count = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
 var asObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 
+// packages/cli/src/token-usage/codex-rollout.ts
+var MODEL2 = /^[A-Za-z0-9][A-Za-z0-9._:@[\]/-]{0,127}$/;
+var LONG_PROMPT_THRESHOLD = 272e3;
+var LONG_PROMPT_MODELS = /^gpt-(?:6(?:\.\d+)?|5\.[4-6])(?:-|$)/i;
+var SPEED_TIERS2 = {
+  priority: "fast",
+  fast: "fast",
+  ultrafast: "ultrafast"
+};
+function scanCodexLines(state, scan, lines) {
+  const codex = scan.codex ??= {};
+  for (const line of lines) {
+    if (!line.includes('"turn_context"') && !line.includes('"token_count"')) continue;
+    let record2;
+    try {
+      record2 = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const payload = asObject2(record2["payload"]);
+    if (!payload) continue;
+    if (record2["type"] === "turn_context") {
+      const model = payload["model"];
+      if (typeof model === "string" && MODEL2.test(model)) codex.model = model;
+      const tier = payload["service_tier"];
+      codex.tier = typeof tier === "string" ? SPEED_TIERS2[tier] ?? "" : "";
+      continue;
+    }
+    if (payload["type"] !== "token_count" || !codex.model) continue;
+    const info = asObject2(payload["info"]);
+    const total = count2(asObject2(info?.["total_token_usage"])?.["total_tokens"]);
+    const last = asObject2(info?.["last_token_usage"]);
+    if (!last || total === codex.total) continue;
+    codex.total = total;
+    noteTimestamp(state, record2["timestamp"]);
+    const input = count2(last["input_tokens"]);
+    const cacheRead = Math.min(count2(last["cached_input_tokens"]), input);
+    const cacheWrite = Math.min(count2(last["cache_write_input_tokens"]), input - cacheRead);
+    const counts = {
+      input_tokens: input - cacheRead - cacheWrite,
+      // Reasoning tokens are already inside output_tokens.
+      output_tokens: count2(last["output_tokens"]),
+      cache_write_5m_tokens: cacheWrite,
+      cache_write_1h_tokens: 0,
+      cache_read_tokens: cacheRead
+    };
+    const long = input > LONG_PROMPT_THRESHOLD && LONG_PROMPT_MODELS.test(codex.model);
+    const variant = [codex.tier ?? "", long ? "long_prompt" : ""].filter(Boolean).join("_");
+    const target = state.totals[`${codex.model}|${variant}`] ??= {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_write_5m_tokens: 0,
+      cache_write_1h_tokens: 0,
+      cache_read_tokens: 0
+    };
+    for (const [cls, value] of Object.entries(counts)) {
+      target[cls] += value;
+    }
+  }
+}
+var count2 = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
+var asObject2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+
 // packages/cli/src/commands/token-usage-hook.ts
 var SESSION_ID2 = /^[A-Za-z0-9_-]{1,128}$/;
 var APP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-var EVENTS = /* @__PURE__ */ new Set(["SessionEnd", "SessionStart"]);
+var CLIENTS = ["claude-code", "codex", "cursor"];
+var EVENTS = {
+  "claude-code": { SessionEnd: "SessionEnd", SessionStart: "SessionStart" },
+  codex: { SessionEnd: "SessionEnd", SessionStart: "SessionStart" },
+  cursor: { sessionEnd: "SessionEnd", sessionStart: "SessionStart" }
+};
 var RETRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1e3;
 var STALE_LOCK_MS = 2 * 60 * 1e3;
 var END_LOCK_WAIT_MS = 60 * 1e3;
@@ -19329,97 +19398,134 @@ async function cmdTokenUsageHook(resolveApiBase2, args, deps = {}) {
     if (args[0] === "--job" && typeof args[1] === "string") {
       await runJob2(apiBase, args[1], deps);
     } else if (!(deps.env ?? process.env)[OBSERVER_CHILD_ENV]) {
-      await handOff(apiBase, deps);
+      const client = args[0] === "--client" ? args[1] : "claude-code";
+      if (isClient(client)) await handOff(apiBase, client, deps);
     }
   } catch {
   }
   return 0;
 }
-async function handOff(apiBase, deps) {
+async function handOff(apiBase, client, deps) {
   const input = JSON.parse(await (deps.readStdin ?? readStdin3)());
-  const event = input["hook_event_name"];
-  const sessionId = input["session_id"];
+  const name = input["hook_event_name"];
+  const event = typeof name === "string" ? EVENTS[client][name] : void 0;
+  const sessionId = client === "cursor" ? input["conversation_id"] : input["session_id"];
   const transcript = input["transcript_path"];
-  const cwd = input["cwd"];
-  if (typeof event !== "string" || !EVENTS.has(event)) return;
+  const roots = input["workspace_roots"];
+  const cwd = client === "cursor" && Array.isArray(roots) ? roots[0] : input["cwd"];
+  if (!event) return;
   if (typeof sessionId !== "string" || !SESSION_ID2.test(sessionId)) return;
-  if (typeof transcript !== "string" || !isAbsolute2(transcript)) return;
+  const hasTranscript = typeof transcript === "string" && isAbsolute2(transcript);
+  if (client === "claude-code" && !hasTranscript) return;
   const job = {
     event,
+    client,
     session_id: sessionId,
-    transcript_path: transcript,
-    ...typeof cwd === "string" && isAbsolute2(cwd) ? { cwd } : {}
+    transcript_path: hasTranscript && client !== "cursor" ? transcript : "",
+    ...typeof cwd === "string" && isAbsolute2(cwd) ? { cwd } : {},
+    at: (deps.now ?? Date.now)()
   };
-  const jobPath = join6(sessionsDir2(apiBase), `${sessionId}.${event}.job.json`);
+  const jobPath = join6(sessionsDir2(apiBase, client), `${sessionId}.${event}.job.json`);
   saveJson2(jobPath, job);
   (deps.startChild ?? startDetachedChild2)(jobPath);
 }
 async function runJob2(apiBase, jobPath, deps) {
   const job = readJson2(jobPath);
   unlinkQuiet2(jobPath);
-  if (!job || !SESSION_ID2.test(job.session_id) || !isAbsolute2(job.transcript_path)) return;
+  const client = job?.client ?? "claude-code";
+  if (!job || !isClient(client) || !SESSION_ID2.test(job.session_id)) return;
+  if (client === "claude-code" && !isAbsolute2(job.transcript_path)) return;
   const flags = await (deps.readFlags ?? readHookFlags)(apiBase);
   if (!flags.agent_token_usage_reports) return;
   const now = (deps.now ?? Date.now)();
-  pruneOldState2(apiBase, now);
+  const state = { apiBase, client };
+  pruneOldState2(state, now);
   const ending = job.event === "SessionEnd";
-  await withSessionLock(apiBase, job.session_id, ending ? END_LOCK_WAIT_MS : 0, async () => {
-    const record2 = loadRecord(apiBase, job.session_id) ?? {
+  await withSessionLock(state, job.session_id, ending ? END_LOCK_WAIT_MS : 0, async () => {
+    const record2 = loadRecord(state, job.session_id) ?? {
       transcript: job.transcript_path,
-      created_at: now,
+      created_at: job.at ?? now,
       ended: false,
       refused: false,
       usage: emptyUsageState()
     };
-    record2.transcript = job.transcript_path;
+    if (job.transcript_path) record2.transcript = job.transcript_path;
     if (job.cwd) record2.cwd = job.cwd;
+    record2.seen_at = Math.max(record2.seen_at ?? 0, job.at ?? now);
     if (ending) record2.ended = true;
-    saveRecord(apiBase, job.session_id, record2);
-    if (ending) await report(apiBase, job.session_id, record2, deps);
+    saveRecord(state, job.session_id, record2);
+    if (ending || client === "cursor") await report(state, job.session_id, record2, deps);
   });
-  if (!ending) await sweep(apiBase, job.session_id, deps);
+  if (!ending) await sweep(state, job.session_id, deps);
 }
-async function sweep(apiBase, current, deps) {
-  for (const sessionId of recordedSessions(apiBase)) {
+async function sweep(state, current, deps) {
+  for (const sessionId of recordedSessions(state)) {
     if (sessionId === current) continue;
-    await withSessionLock(apiBase, sessionId, 0, async () => {
-      const record2 = loadRecord(apiBase, sessionId);
-      if (record2) await report(apiBase, sessionId, record2, deps);
+    await withSessionLock(state, sessionId, 0, async () => {
+      const record2 = loadRecord(state, sessionId);
+      if (record2) await report(state, sessionId, record2, deps);
     });
   }
 }
-async function report(apiBase, sessionId, record2, deps) {
+async function report(state, sessionId, record2, deps) {
   if (record2.refused) return;
   const appId = record2.app_id ?? (record2.cwd ? findAppId(record2.cwd) : null);
   if (!appId || !APP_ID.test(appId)) {
-    if (record2.ended) forget(apiBase, sessionId);
+    if (record2.ended) forget(state, sessionId);
     return;
   }
-  for (const file of transcriptFiles(record2.transcript, sessionId)) {
-    const scan = record2.usage.files[file] ??= emptyFileScan();
-    const { lines, consumedBytes } = completeLines2(readFrom2(file, scan.offset));
-    scanUsageLines(record2.usage, scan, lines);
-    scan.offset += consumedBytes;
+  let send;
+  let json;
+  if (state.client === "cursor") {
+    const claim3 = {
+      app_id: appId,
+      conversation_id: sessionId,
+      started_at: new Date(record2.created_at).toISOString(),
+      ended_at: new Date(Math.max(record2.created_at, record2.seen_at ?? 0)).toISOString()
+    };
+    json = JSON.stringify(claim3);
+    send = () => (deps.sendClaim ?? sendClaim)(state.apiBase, claim3);
+  } else {
+    if (state.client === "codex" && !record2.transcript) {
+      record2.transcript = (deps.findCodexRollout ?? findCodexRollout)(sessionId) ?? "";
+    }
+    for (const file of transcriptFiles(state.client, record2.transcript, sessionId)) {
+      const scan = record2.usage.files[file] ??= emptyFileScan();
+      const { lines, consumedBytes } = completeLines2(readFrom2(file, scan.offset));
+      if (state.client === "codex") scanCodexLines(record2.usage, scan, lines);
+      else scanUsageLines(record2.usage, scan, lines);
+      scan.offset += consumedBytes;
+    }
+    saveRecord(state, sessionId, record2);
+    const usage = usageRows(record2.usage);
+    const { startedAt, endedAt } = record2.usage;
+    if (usage.length === 0 || !startedAt || !endedAt) return;
+    const body = {
+      app_id: appId,
+      client: state.client,
+      client_session_id: sessionId,
+      started_at: startedAt,
+      ended_at: endedAt,
+      usage
+    };
+    json = JSON.stringify(body);
+    send = () => (deps.send ?? sendReport)(state.apiBase, body);
   }
-  saveRecord(apiBase, sessionId, record2);
-  const usage = usageRows(record2.usage);
-  const { startedAt, endedAt } = record2.usage;
-  if (usage.length === 0 || !startedAt || !endedAt) return;
-  const body = {
-    app_id: appId,
-    client: "claude-code",
-    client_session_id: sessionId,
-    started_at: startedAt,
-    ended_at: endedAt,
-    usage
-  };
-  const json = JSON.stringify(body);
   if (record2.sent === json) return;
   record2.app_id = appId;
-  const status = await (deps.send ?? sendReport)(apiBase, body).catch(() => 0);
+  const status = await send().catch(() => 0);
   if (status === 200) record2.sent = json;
   else if (FINAL_REFUSALS.has(status)) record2.refused = true;
-  saveRecord(apiBase, sessionId, record2);
+  saveRecord(state, sessionId, record2);
+}
+async function sendClaim(apiBase, body) {
+  const token = await getAccessToken(apiBase);
+  const res = await jsonRequest("POST", `${apiBase}/api/cli/token-usage/cursor-session`, {
+    token,
+    body,
+    timeoutMs: SEND_TIMEOUT_MS
+  });
+  return res.status;
 }
 async function sendReport(apiBase, body) {
   const token = await getAccessToken(apiBase);
@@ -19430,8 +19536,10 @@ async function sendReport(apiBase, body) {
   });
   return res.status;
 }
-function transcriptFiles(transcript, sessionId) {
+function transcriptFiles(client, transcript, sessionId) {
+  if (!transcript) return [];
   const files = [transcript];
+  if (client !== "claude-code") return files;
   const subagents = join6(dirname4(transcript), sessionId, "subagents");
   try {
     for (const name of readdirSync2(subagents).sort()) {
@@ -19450,28 +19558,50 @@ function startDetachedChild2(jobPath) {
   });
   child.unref();
 }
-var sessionsDir2 = (apiBase) => join6(hookStateDir(apiBase), "token-usage");
-var recordPath = (apiBase, sessionId) => join6(sessionsDir2(apiBase), `${sessionId}.json`);
-var lockPath2 = (apiBase, sessionId) => join6(sessionsDir2(apiBase), `${sessionId}.lock`);
-function recordedSessions(apiBase) {
+function findCodexRollout(sessionId, env = process.env) {
+  const root = join6(env["CODEX_HOME"] || join6(homedir4(), ".codex"), "sessions");
+  const suffix = `-${sessionId}.jsonl`;
+  const newestFirst = (dir) => {
+    try {
+      return readdirSync2(dir).sort().reverse();
+    } catch {
+      return [];
+    }
+  };
+  for (const year of newestFirst(root)) {
+    for (const month of newestFirst(join6(root, year))) {
+      for (const day of newestFirst(join6(root, year, month))) {
+        const dir = join6(root, year, month, day);
+        const name = newestFirst(dir).find((file) => file.endsWith(suffix));
+        if (name) return join6(dir, name);
+      }
+    }
+  }
+  return void 0;
+}
+var isClient = (value) => typeof value === "string" && CLIENTS.includes(value);
+var sessionsDir2 = (apiBase, client) => join6(hookStateDir(apiBase), client === "claude-code" ? "token-usage" : `token-usage-${client}`);
+var recordPath = (state, sessionId) => join6(sessionsDir2(state.apiBase, state.client), `${sessionId}.json`);
+var lockPath2 = (state, sessionId) => join6(sessionsDir2(state.apiBase, state.client), `${sessionId}.lock`);
+function recordedSessions(state) {
   try {
-    return readdirSync2(sessionsDir2(apiBase)).filter((name) => name.endsWith(".json") && !name.endsWith(".job.json")).map((name) => basename(name, ".json")).filter((id) => SESSION_ID2.test(id));
+    return readdirSync2(sessionsDir2(state.apiBase, state.client)).filter((name) => name.endsWith(".json") && !name.endsWith(".job.json")).map((name) => basename(name, ".json")).filter((id) => SESSION_ID2.test(id));
   } catch {
     return [];
   }
 }
-function loadRecord(apiBase, sessionId) {
-  const record2 = readJson2(recordPath(apiBase, sessionId));
+function loadRecord(state, sessionId) {
+  const record2 = readJson2(recordPath(state, sessionId));
   return record2 && typeof record2.transcript === "string" && record2.usage ? record2 : void 0;
 }
-function saveRecord(apiBase, sessionId, record2) {
-  saveJson2(recordPath(apiBase, sessionId), record2);
+function saveRecord(state, sessionId, record2) {
+  saveJson2(recordPath(state, sessionId), record2);
 }
-function forget(apiBase, sessionId) {
-  unlinkQuiet2(recordPath(apiBase, sessionId));
+function forget(state, sessionId) {
+  unlinkQuiet2(recordPath(state, sessionId));
 }
-function pruneOldState2(apiBase, now) {
-  const dir = sessionsDir2(apiBase);
+function pruneOldState2(state, now) {
+  const dir = sessionsDir2(state.apiBase, state.client);
   let names;
   try {
     names = readdirSync2(dir);
@@ -19488,8 +19618,8 @@ function pruneOldState2(apiBase, now) {
     }
   }
 }
-async function withSessionLock(apiBase, sessionId, waitMs, fn) {
-  const path = lockPath2(apiBase, sessionId);
+async function withSessionLock(state, sessionId, waitMs, fn) {
+  const path = lockPath2(state, sessionId);
   const deadline = Date.now() + waitMs;
   for (; ; ) {
     if (claim2(path)) break;

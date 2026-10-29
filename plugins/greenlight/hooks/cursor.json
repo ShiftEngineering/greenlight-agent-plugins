@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/cli/greenlight.mjs\" token-usage-hook --client cursor",
+        "timeout": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/cli/greenlight.mjs\" token-usage-hook --client cursor",
+        "timeout": 5
+      }
+    ]
+  }
+}

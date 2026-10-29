@@ -1,6 +1,6 @@
 ---
 name: user-passthrough
-description: Builds app features that act as the signed-in person in another system through Greenlight's user passthrough integrations (Microsoft Graph, Microsoft Fabric, Power BI semantic models, Box and others with auth_category user-delegated). Use when a Greenlight-governed app reads or writes a person's own mail, files, calendar, workspace or warehouse data, handles 401 proxy.user_connection_required or a connect_url, shows a Connect button, or decides between acting as the person and acting as the app.
+description: Builds app features that act as the signed-in person in another system through Greenlight's user passthrough integrations (Microsoft Graph, Microsoft Fabric, Power BI semantic models, Box and others with auth_category user-delegated). Use when a Greenlight-governed app reads or writes a person's own mail, files, calendar, workspace or warehouse data, handles 401 proxy.user_connection_required or a connect_url, shows a Connect button, runs scheduled work on a person's behalf, or decides between acting as the person and acting as the app.
 ---
 
 # User passthrough
@@ -58,10 +58,24 @@ writing calls.
    and never answer one person's request with rows read as another. Work for a group runs once per
    person, as each of them; a view across people needs a service-identity integration IT granted
    for that purpose.
-6. **The actor token is read from the request and never stored, queued, or reused.**
-7. **No background work.** These integrations refuse any call with no present person, so
-   scheduled, queued, or startup work cannot use them. Work that must run with nobody signed in
-   binds a separate service-identity credential and grant.
+6. **While serving a request, forward that request's actor token.** Never log it, and never send
+   one person's token on a call made for someone else.
+7. **Scheduled work on a person's behalf replays their newest token.** For a sync a person set
+   up, a report under their own permissions, or an export that outlives the request, keep the
+   newest `X-Greenlight-Actor-Token` received from that person, keyed by their `X-User-Id`,
+   overwritten on every request they make, stored like a secret (encrypted at rest, never logged,
+   never in a request dump), and have the scheduler send it in the same header on that person's
+   calls. Only on a user passthrough integration the app is granted, only for people who have used
+   the app (there is no token for anyone else), and one person's token only for that person's
+   work; rule 5 still holds. The proxy runs such a call as the person while they are still active,
+   still have access to the app, and are connected, up to ninety days after their last visit.
+   - `401 proxy.user_connection_required` or `401 proxy.actor_token_invalid` on a scheduled call:
+     pause that person's schedule, tell them in the app, and resume after their next visit with
+     the newer token it brings. Never open `connect_url` for them.
+   - `502 proxy.upstream_auth_failed`: pause the feature for everyone and tell the app's owner.
+   - `429`: honour `Retry-After`, as on any call.
+     Work with no particular person behind it (a nightly sync for everyone, a queue consumer, a
+     digest emailed to every user) binds a separate service-identity credential and grant.
 8. **Locally, the developer is the person.** `greenlight run` (either mode) and
    `inspectIntegrationApi` call these integrations as the developer, with real effects: a local
    send-mail sends from their own mailbox. No actor token exists or is needed locally. The first

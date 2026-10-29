@@ -1016,10 +1016,12 @@ await fetch(`${process.env.GREENLIGHT_PROXY_URL}/<integration>/...`, {
 });
 ```
 
-Treat the token as opaque and request-scoped: never inspect, log, store, or reuse it beyond the
-request that carried it — reuse misattributes data access. Background work (startup tasks, timers,
-queue consumers, scheduled jobs) has no user and no token: workload attribution is the correct
-outcome there, so never mint or replay a token for it.
+Treat the token as opaque: never inspect or log it, and never reuse it beyond the request that
+carried it — reuse misattributes data access. Background work (startup tasks, timers, queue
+consumers, scheduled jobs) has no user and no token: workload attribution is the correct outcome
+there, so never mint or replay a token for it. The one exception is scheduled work on a person's
+behalf through a user passthrough integration the app is granted, where the app keeps and replays
+that person's own token; the user-passthrough skill owns that rule.
 
 ### User passthrough integrations
 
@@ -1027,7 +1029,7 @@ Before writing a call that acts as the signed-in person (`auth_category: user-de
 Microsoft Graph, Microsoft Fabric, Power BI or Box), or handling
 `401 proxy.user_connection_required`, read the bundled
 [user-passthrough skill](../user-passthrough/SKILL.md) in full. It owns the calling rules, the
-per-person data rule, the no-background-work rule, local behaviour, and the Connect button every
+per-person data rule, the rule for scheduled work on a person's behalf, local behaviour, and the Connect button every
 such app shows instead of redirecting. Keep following this core skill for the surrounding grant,
 Knowledge, local-development, delivery, and verification workflow.
 
