@@ -2231,8 +2231,8 @@ var require_resolve = __commonJS({
       }
       return count3;
     }
-    function getFullPath(resolver, id = "", normalize) {
-      if (normalize !== false)
+    function getFullPath(resolver, id = "", normalize2) {
+      if (normalize2 !== false)
         id = normalizeId(id);
       const p = resolver.parse(id);
       return _getFullPath(resolver, p);
@@ -3827,7 +3827,7 @@ var require_fast_uri = __commonJS({
       }
       return decodedScheme;
     }
-    function normalize(uri, options) {
+    function normalize2(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
         normalizeString(uri, options);
@@ -4205,7 +4205,7 @@ var require_fast_uri = __commonJS({
     }
     var fastUri = {
       SCHEMES,
-      normalize,
+      normalize: normalize2,
       resolve: resolve2,
       resolveComponent,
       equal,
@@ -7323,6 +7323,52 @@ function invalid(message2, field) {
   if (field) err.details = { field };
   return err;
 }
+var normalize = (name) => name.replace(/[-.]/g, "_").toLowerCase();
+function closestFlag(name, specs) {
+  const typed = normalize(name);
+  for (const [flag, spec] of Object.entries(specs)) {
+    const field = spec.field.split(".").pop() ?? spec.field;
+    if (typed === normalize(field) || typed === normalize(spec.field)) return flag;
+  }
+  const extensions = Object.keys(specs).filter((flag) => normalize(flag).startsWith(`${typed}_`));
+  if (extensions.length === 1) return extensions[0];
+  let best;
+  for (const flag of Object.keys(specs)) {
+    const distance = editDistance(typed, normalize(flag));
+    if (distance <= 2 && distance < typed.length && (best === void 0 || distance < best.distance))
+      best = { flag, distance };
+  }
+  return best?.flag;
+}
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row.push(Math.min(row[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost));
+    }
+    prev = row;
+  }
+  return prev[b.length];
+}
+function flagGuidance(name, specs) {
+  const valid = Object.keys(specs).map((flag) => `--${flag}`);
+  const suggestion = closestFlag(name, specs);
+  const text = [
+    suggestion ? ` Did you mean --${suggestion}?` : "",
+    valid.length > 0 ? ` Valid flags: ${valid.join(", ")}.` : " This command takes no flags."
+  ].join("");
+  const details = { valid_flags: valid };
+  if (suggestion) details["did_you_mean"] = `--${suggestion}`;
+  return { text, details };
+}
+function unknownFlag(name, specs) {
+  const { text, details } = flagGuidance(name, specs);
+  const err = new CliError(`Unknown flag: --${name}.${text}`, "validation.body_invalid", 2);
+  err.details = details;
+  return err;
+}
 function parseFlags(args, specs) {
   const out = {};
   for (let i = 0; i < args.length; i += 1) {
@@ -7330,8 +7376,8 @@ function parseFlags(args, specs) {
     if (token === void 0) continue;
     if (!token.startsWith("--")) throw invalid(`Unexpected argument: ${token}`);
     const name = token.slice(2);
-    const spec = specs[name];
-    if (!spec) throw invalid(`Unknown flag: --${name}`);
+    const spec = Object.hasOwn(specs, name) ? specs[name] : void 0;
+    if (!spec) throw unknownFlag(name, specs);
     if (spec.type === "boolean") {
       setField(out, spec.field, true);
       continue;
@@ -20558,11 +20604,14 @@ function parseRunArgs(after) {
       continue;
     }
     if (arg?.startsWith("-")) {
-      throw new CliError(
-        `Unknown run flag: ${arg}. See \`greenlight run --help\`, or put the dev command after \`--\`.`,
+      const { text, details } = flagGuidance(arg.replace(/^-+/, ""), RUN_FLAGS);
+      const err = new CliError(
+        `Unknown run flag: ${arg}.${text} Put the dev command after \`--\`.`,
         "validation.unknown_flag",
         2
       );
+      err.details = details;
+      throw err;
     }
     break;
   }
