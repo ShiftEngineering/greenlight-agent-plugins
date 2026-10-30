@@ -16926,7 +16926,7 @@ var INSPECT_API_FLAGS = {
     field: "integration",
     type: "string",
     required: true,
-    describe: "Granted integration slug (from `integrations list`)."
+    describe: "Granted integration slug (from `integrations list`), or `<integration>~<credential>` to name one of its credentials."
   },
   path: {
     field: "path",
