@@ -585,7 +585,7 @@ resources: # one entry max per kind at MVP
   - kind: blob
     name: receipts
 
-grants: # integration access requests; one entry max per integration
+grants: # integration access requests; one entry per credential (several credentials of one integration are fine)
   - integration: <integration-name> # use the real integration names the user/org provides
     credential: <slug> # the credential to bind, by its slug (e.g. crm-readonly); IT registers the slugs — discover integrations and their slugs with listGrantableIntegrations. Not a fixed read/write/access enum.
     reason: Read CRM accounts to prefill expense categories.
@@ -614,13 +614,35 @@ integration slugs back to you: the merge-time policy denial and the deploy failu
 end. An empty list there means the org has connected nothing yet — tell the user and point at IT
 (see _Starting from an idea_), don't retry.
 
-**One `grants:` entry per integration.** An app binds exactly one credential per integration, so
-listing the same `integration:` twice with different credential slugs is rejected when you open the
-PR. When one system has to do two jobs — read pull requests _and_ file issues — that is one grant on
-one credential whose upstream scopes cover both, not two grants. Multiple credentials on an
-integration exist so different apps can get different capability, not so one app can hold several.
-If the credential the org registered is too narrow for what the app needs, tell the user and point
-at IT, who can widen it or register another.
+**One `grants:` entry per credential.** When one system has to do two jobs that IT keeps on two
+credentials (for example GitHub `actions-read`, which auto-approves, and `admin-read`, which IT
+reviews), declare both, each approved on its own terms:
+
+```yaml
+grants:
+  - integration: github
+    credential: actions-read
+    reason: Read workflow runs for the build dashboard.
+  - integration: github
+    credential: admin-read
+    reason: Read repository settings for the compliance report.
+```
+
+Then name the credential in every call to that integration and keep one client per credential,
+each with base URL `${GREENLIGHT_PROXY_URL}/github~actions-read` or
+`${GREENLIGHT_PROXY_URL}/github~admin-read`. While an app holds two grants on an integration, the
+bare `${GREENLIGHT_PROXY_URL}/github/...` answers `409 proxy.credential_ambiguous` instead of
+picking one.
+
+**Adding a second credential to an integration the app already calls takes two PRs.** The first
+moves every existing call to `/<integration>~<slug>/` (it works with one grant). The second adds the
+new grant. In one PR, the merge writes the new grant before the new pods roll out, so the running
+version's bare calls fail with 409 until rollout finishes.
+
+The same credential listed twice is rejected when you open the PR. An integration delivered as
+`injected` holds one credential per app: its value lands in one env var, so the policy check refuses
+a second grant on it. If the org registered only one credential and it is too narrow for what the
+app needs, tell the user and point at IT, who can widen it or register another.
 
 Grants are request signals, not merge blockers: an auto-approved grant works the moment the PR
 merges; an IT-required grant deploys in `pending` and the proxy returns `403` for it until IT
@@ -974,7 +996,8 @@ A granted integration reaches its upstream one of two ways, set per-integration 
 
 - **Proxied** (the default): call the Greenlight proxy, never the upstream directly. Base URL from
   `process.env.GREENLIGHT_PROXY_URL` (never hardcode it); path
-  `${GREENLIGHT_PROXY_URL}/<integration>/...`. Put `process.env.GREENLIGHT_DATA_KEY` in the same
+  `${GREENLIGHT_PROXY_URL}/<integration>/...`, or `${GREENLIGHT_PROXY_URL}/<integration>~<credential>/...`
+  when the app holds more than one credential of that integration. Put `process.env.GREENLIGHT_DATA_KEY` in the same
   auth slot the upstream normally uses (`Authorization: Bearer`, `X-Api-Key`, `?apikey=`, or the
   secret side of a multi-header/basic shape — read the provider instructions from integration
   Knowledge / `getApp`). The proxy validates that key, swaps in the real credential in the same
