@@ -1154,6 +1154,11 @@ through Greenlight so it is audited and policy-gated.
 For new work, run `git -C <dir> checkout main && git -C <dir> pull origin main && git -C <dir> checkout -b feat/<change>`; when resuming, run `git -C <dir> checkout <feature-branch> && git -C <dir> fetch origin && git -C <dir> merge origin/main`.
 Merge rather than rebase; resolve conflicts and re-run the app locally before continuing.
 
+Greenlight owns `.github/workflows/greenlight.yml` and commits it to your open branch when its
+template changes, which starts a new pipeline run. If a push is then rejected because the remote
+branch has a commit you don't, run `git -C <dir> pull --no-rebase origin <feature-branch>` and push
+again. Never force-push: it deletes that commit and the next run fails on the old workflow.
+
 **Every `mergePullRequest` lands as a squash commit**, so after a merge your old feature branch's
 tip is _not_ an ancestor of `main`. Always cut the next branch from freshly pulled `origin/main`,
 never from the previous feature branch — a stale base surfaces as a spurious
