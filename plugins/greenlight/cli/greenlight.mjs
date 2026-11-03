@@ -17262,8 +17262,12 @@ var INTEGRATION_LABEL = {
   live_passthrough: "live as you (your connected account)",
   connect_required: "not connected yet \u2014 calls answer 401 until you connect",
   fixtures_user_delegated: "fixtures (user-delegated)",
-  denied_group_requirement: "denied (not in a required group)"
+  denied_group_requirement: "denied (not in a required group)",
+  not_selected: "not delivered (another credential picked)"
 };
+function credentialName(i) {
+  return i.credential === void 0 ? i.integration : `${i.integration}~${i.credential}`;
+}
 var RESOURCE_LABEL = {
   live_proxy: "live (proxy token)",
   fixtures_inspect: "fixtures + inspectAppDb",
@@ -17308,7 +17312,7 @@ function parseEnvFile(path) {
 function formatSummary(contract) {
   const lines = [];
   for (const i of contract.integrations ?? []) {
-    lines.push(`  ${i.integration}: ${INTEGRATION_LABEL[i.local] ?? i.local}`);
+    lines.push(`  ${credentialName(i)}: ${INTEGRATION_LABEL[i.local] ?? i.local}`);
   }
   for (const r of contract.resources ?? []) {
     lines.push(`  ${r.kind}: ${RESOURCE_LABEL[r.local] ?? r.local}`);
@@ -17322,7 +17326,9 @@ function needsLocalProxyToken(integrations) {
 }
 function formatConnectLinks(integrations) {
   return integrations.flatMap(
-    (i) => i.local === "connect_required" && i.connect_url !== void 0 ? [`Connect your ${i.integration} account to call it as yourself: ${i.connect_url}`] : []
+    (i) => i.local === "connect_required" && i.connect_url !== void 0 ? [
+      i.credential === void 0 ? `Connect your ${i.integration} account to call it as yourself: ${i.connect_url}` : `Connect your ${i.integration} account for its '${i.credential}' credential to call it as yourself: ${i.connect_url}`
+    ] : []
   );
 }
 function parseRunContract(body) {
@@ -17350,9 +17356,11 @@ function asIntegrations(value) {
     const r = asRecord(entry2);
     if (typeof r["integration"] !== "string" || typeof r["local"] !== "string") return [];
     const connectUrl = r["connect_url"];
+    const credential = r["credential"];
     return [
       {
         integration: r["integration"],
+        ...typeof credential === "string" ? { credential } : {},
         local: r["local"],
         ...typeof connectUrl === "string" ? { connect_url: connectUrl } : {}
       }
@@ -17499,6 +17507,12 @@ var RUN_FLAGS = {
     field: "env_file",
     type: "string",
     describe: "Dotenv-style file of extra vars for the child."
+  },
+  credential: {
+    field: "credentials",
+    type: "string",
+    repeated: true,
+    describe: "Pick one injected credential, as <integration>~<credential>, when you hold two of one integration (repeatable)."
   }
 };
 function ensureOk(res, context) {
@@ -17510,13 +17524,21 @@ function ensureOk(res, context) {
   }
   if (res.status !== 200) {
     const msg = readString(res.body, "message") ?? `HTTP ${res.status}`;
-    throw new CliError(`${context}: ${msg}`);
+    const code = readString(res.body, "code");
+    const err = new CliError(
+      `${context}: ${msg}`,
+      code ?? "cli.error",
+      exitCodeForToolError({ code: code ?? "" })
+    );
+    const details = res.body?.["details"];
+    if (details !== void 0) err.details = details;
+    throw err;
   }
 }
 async function cmdRun(apiBase, opts, devCommand) {
   if (devCommand.length === 0) {
     throw new CliError(
-      "Usage: greenlight run [--app <id>] [--env K=V] [--env-file <p>] -- <command> [args\u2026]"
+      "Usage: greenlight run [--app <id>] [--env K=V] [--env-file <p>] [--credential <integration>~<credential>] -- <command> [args\u2026]"
     );
   }
   const token = await getAccessToken(apiBase);
@@ -17529,7 +17551,11 @@ async function cmdRun(apiBase, opts, devCommand) {
     }
   }
   const body = opts.appId !== void 0 ? { app_id: opts.appId } : {};
-  const res = await jsonRequest("POST", `${apiBase}/api/cli/run-context`, { token, body });
+  const credentials = opts.credentials ?? [];
+  const res = await jsonRequest("POST", `${apiBase}/api/cli/run-context`, {
+    token,
+    body: credentials.length > 0 ? { ...body, credentials } : body
+  });
   ensureOk(res, "Could not resolve the run contract");
   const contract = parseRunContract(res.body);
   const needsProxyToken = needsLocalProxyToken(contract.integrations ?? []) || (contract.resources ?? []).some((r) => r.kind === "blob" && r.local !== "pending");
@@ -20600,6 +20626,19 @@ function parseRunArgs(after) {
     }
     if (arg === "--env-file") {
       opts.envFile = value(i, "--env-file");
+      i += 2;
+      continue;
+    }
+    if (arg === "--credential") {
+      const pick2 = value(i, "--credential");
+      if (!/^[^~]+~[^~]+$/.test(pick2)) {
+        throw new CliError(
+          "--credential expects <integration>~<credential>.",
+          "validation.body_invalid",
+          2
+        );
+      }
+      opts.credentials = [...opts.credentials ?? [], pick2];
       i += 2;
       continue;
     }

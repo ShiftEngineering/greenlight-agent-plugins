@@ -482,6 +482,9 @@ delivers real secret values into a local process, which never crosses MCP. The m
 - Extra local vars flow through unchanged: the ambient shell env, repeatable `--env KEY=VAL`, and
   `--env-file <path>` — with Greenlight-managed names always injected last (they cannot be
   clobbered).
+- An injected integration delivers one value. If the user holds two of its credentials, the run
+  stops before starting and names both (`cli_run.credential_ambiguous`); re-run with
+  `--credential <integration>~<credential>` to pick one.
 
 The managed env-var names are identical in both modes, so code written in user mode runs unchanged
 when the app later deploys on its own grants; the app's own Postgres is a local fixture database
@@ -629,7 +632,7 @@ grants:
 ```
 
 Then name the credential in every call to that integration and keep one client per credential,
-each with base URL `${GREENLIGHT_PROXY_URL}/github~actions-read` or
+each with the base URL `listGrantableIntegrations` gives as that credential's `proxy_base_url`: `${GREENLIGHT_PROXY_URL}/github~actions-read` or
 `${GREENLIGHT_PROXY_URL}/github~admin-read`. While an app holds two grants on an integration, the
 bare `${GREENLIGHT_PROXY_URL}/github/...` answers `409 proxy.credential_ambiguous` instead of
 picking one.
