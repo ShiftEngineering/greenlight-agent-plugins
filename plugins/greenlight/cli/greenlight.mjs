@@ -7323,6 +7323,10 @@ function invalid(message2, field) {
   if (field) err.details = { field };
   return err;
 }
+function splitFlag(arg) {
+  const eq = arg.startsWith("--") ? arg.indexOf("=") : -1;
+  return eq === -1 ? { flag: arg, inline: void 0 } : { flag: arg.slice(0, eq), inline: arg.slice(eq + 1) };
+}
 var normalize = (name) => name.replace(/[-.]/g, "_").toLowerCase();
 function closestFlag(name, specs) {
   const typed = normalize(name);
@@ -7375,18 +7379,24 @@ function parseFlags(args, specs) {
     const token = args[i];
     if (token === void 0) continue;
     if (!token.startsWith("--")) throw invalid(`Unexpected argument: ${token}`);
-    const name = token.slice(2);
+    const eq = token.indexOf("=");
+    const name = eq === -1 ? token.slice(2) : token.slice(2, eq);
+    const inline = eq === -1 ? void 0 : token.slice(eq + 1);
     const spec = Object.hasOwn(specs, name) ? specs[name] : void 0;
     if (!spec) throw unknownFlag(name, specs);
     if (spec.type === "boolean") {
+      if (inline !== void 0) throw invalid(`--${name} takes no value`, spec.field);
       setField(out, spec.field, true);
       continue;
     }
-    const raw = args[i + 1];
-    if (raw === void 0 || raw.startsWith("--")) {
-      throw invalid(`--${name} requires a value`, spec.field);
+    let raw = inline;
+    if (raw === void 0) {
+      raw = args[i + 1];
+      if (raw === void 0 || raw.startsWith("--")) {
+        throw invalid(`--${name} requires a value`, spec.field);
+      }
+      i += 1;
     }
-    i += 1;
     const value = coerce(raw, spec, name);
     if (spec.repeated) {
       const list = getField(out, spec.field) ?? [];
@@ -7469,7 +7479,7 @@ function localRequestId() {
 }
 
 // packages/cli/src/mcp/transport.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
+import { randomBytes as randomBytes3 } from "node:crypto";
 import { URL as URL2 } from "node:url";
 
 // node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/core.js
@@ -14747,8 +14757,8 @@ async function random(size) {
   const evenDistCutoff = Math.pow(2, 8) - Math.pow(2, 8) % mask.length;
   let result = "";
   while (result.length < size) {
-    const randomBytes5 = await getRandomValues(size - result.length);
-    for (const randomByte of randomBytes5) {
+    const randomBytes6 = await getRandomValues(size - result.length);
+    for (const randomByte of randomBytes6) {
       if (randomByte < evenDistCutoff) {
         result += mask[randomByte % mask.length];
       }
@@ -16354,25 +16364,174 @@ var StreamableHTTPClientTransport = class {
   }
 };
 
-// packages/cli/src/keychain.ts
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+// packages/cli/src/auth-lock.ts
+import { createHash, randomBytes as randomBytes2 } from "node:crypto";
 import {
   closeSync,
-  existsSync,
   fsyncSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeSync
 } from "node:fs";
-import { homedir, platform } from "node:os";
+import { homedir, hostname as hostname2 } from "node:os";
 import { dirname, join } from "node:path";
+var ACQUIRE_TIMEOUT_MS = 5e3;
+var RETRY_MS = 25;
+var authStatePath = (apiBase, extension) => join(
+  homedir(),
+  ".greenlight",
+  `auth-${createHash("sha256").update(apiBase, "utf8").digest("hex").slice(0, 16)}.${extension}`
+);
+var lockPath = (apiBase) => authStatePath(apiBase, "lock");
+function ensureAuthStateDir() {
+  mkdirSync(join(homedir(), ".greenlight"), { recursive: true, mode: 448 });
+}
+function holderIsGone(holder) {
+  if (holder.host !== hostname2()) return false;
+  try {
+    process.kill(holder.pid, 0);
+    return false;
+  } catch (err) {
+    return err.code === "ESRCH";
+  }
+}
+function readHolder(path) {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof parsed.pid === "number" && typeof parsed.host === "string") {
+      return { pid: parsed.pid, host: parsed.host, at: parsed.at ?? 0 };
+    }
+  } catch {
+  }
+  return void 0;
+}
+function withAuthLock(apiBase, fn, onDiagnostic) {
+  return withLockfile(lockPath(apiBase), fn, {
+    onDiagnostic,
+    subject: "auth lock",
+    busyMessage: (holder) => holder !== void 0 ? `Another greenlight process (pid ${holder.pid}) is holding the sign-in lock. Wait for it to finish, then retry.` : "The sign-in lock is held by another greenlight process. Wait for it to finish, then retry."
+  });
+}
+var heldLocks = /* @__PURE__ */ new Map();
+function withLockfile(path, fn, opts) {
+  const depth = heldLocks.get(path);
+  if (depth !== void 0) {
+    heldLocks.set(path, depth + 1);
+    try {
+      return fn();
+    } finally {
+      heldLocks.set(path, depth);
+    }
+  }
+  mkdirSync(dirname(path), { recursive: true, mode: 448 });
+  const start = Date.now();
+  let mine;
+  for (; ; ) {
+    try {
+      const fd = openSync(path, "wx", 384);
+      try {
+        mine = { pid: process.pid, host: hostname2(), at: Date.now() };
+        writeSync(fd, JSON.stringify(mine));
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      break;
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      const holder = readHolder(path);
+      if (holder !== void 0 && holderIsGone(holder)) {
+        if (reclaim(path, holder)) {
+          opts.onDiagnostic?.(
+            `[greenlight] Reclaimed an ${opts.subject} left by process ${holder.pid}, which is no longer running.`
+          );
+        }
+        continue;
+      }
+      if (holder === void 0 && fileOlderThan(path, ACQUIRE_TIMEOUT_MS)) {
+        if (reclaim(path, void 0)) {
+          opts.onDiagnostic?.(
+            `[greenlight] Reclaimed an ${opts.subject} left with no owner recorded.`
+          );
+        }
+        continue;
+      }
+      if (Date.now() - start > ACQUIRE_TIMEOUT_MS) {
+        throw new CliError(opts.busyMessage(holder), "auth.lock_unavailable", 3);
+      }
+      sleepSync(RETRY_MS);
+    }
+  }
+  heldLocks.set(path, 0);
+  try {
+    return fn();
+  } finally {
+    heldLocks.delete(path);
+    if (mine !== void 0 && sameHolder(readHolder(path), mine)) {
+      try {
+        unlinkSync(path);
+      } catch {
+      }
+    }
+  }
+}
+function sameHolder(a, b) {
+  return a !== void 0 && a.pid === b.pid && a.host === b.host && a.at === b.at;
+}
+function fileOlderThan(path, ms) {
+  try {
+    return Date.now() - statSync(path).mtimeMs > ms;
+  } catch {
+    return false;
+  }
+}
+function reclaim(path, judged) {
+  const taken = `${path}.reclaim-${process.pid}-${randomBytes2(4).toString("hex")}`;
+  try {
+    renameSync(path, taken);
+  } catch {
+    return false;
+  }
+  const found = readHolder(taken);
+  const sameEvidence = judged === void 0 ? found === void 0 && fileOlderThan(taken, ACQUIRE_TIMEOUT_MS) : sameHolder(found, judged);
+  if (!sameEvidence) {
+    try {
+      linkSync(taken, path);
+    } catch {
+    }
+  }
+  try {
+    unlinkSync(taken);
+  } catch {
+  }
+  return sameEvidence;
+}
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// packages/cli/src/keychain.ts
+import { spawnSync } from "node:child_process";
+import { createHash as createHash2 } from "node:crypto";
+import {
+  closeSync as closeSync2,
+  existsSync,
+  fsyncSync as fsyncSync2,
+  mkdirSync as mkdirSync2,
+  openSync as openSync2,
+  readFileSync as readFileSync2,
+  renameSync as renameSync2,
+  writeSync as writeSync2
+} from "node:fs";
+import { homedir as homedir2, platform } from "node:os";
+import { dirname as dirname2, join as join2 } from "node:path";
 var KEYCHAIN_SERVICE = "greenlight-cli";
-var LOCK_TIMEOUT_MS = 5e3;
-var sha256Hex = (s) => createHash("sha256").update(s, "utf8").digest("hex");
+var sha256Hex = (s) => createHash2("sha256").update(s, "utf8").digest("hex");
 var useKeychain = () => platform() === "darwin" && process.env["GREENLIGHT_CLI_KEYCHAIN"] !== "0";
 function credentialBackend() {
   return useKeychain() ? "keychain" : "file";
@@ -16382,7 +16541,7 @@ function credentialStoreLabel() {
 }
 function createSecretStore(opts) {
   const accountFor = (apiBase) => `${opts.accountPrefix}:${sha256Hex(apiBase).slice(0, 16)}`;
-  const filePath = () => join(homedir(), ".greenlight", opts.fallbackFile);
+  const filePath = () => join2(homedir2(), ".greenlight", opts.fallbackFile);
   return {
     accountFor,
     read(apiBase) {
@@ -16431,14 +16590,14 @@ function removeKeychainEntry(account) {
 }
 function readFileEntry(path, apiBase) {
   try {
-    const store3 = JSON.parse(readFileSync(path, "utf8"));
+    const store3 = JSON.parse(readFileSync2(path, "utf8"));
     return store3[apiBase];
   } catch {
     return void 0;
   }
 }
 function writeFileEntry(path, apiBase, value) {
-  mkdirSync(dirname(path), { recursive: true, mode: 448 });
+  mkdirSync2(dirname2(path), { recursive: true, mode: 448 });
   withFileLock(`${path}.lock`, () => {
     const store3 = readStore(path);
     store3[apiBase] = value;
@@ -16457,69 +16616,129 @@ function removeFileEntry(path, apiBase) {
 }
 function readStore(path) {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    return JSON.parse(readFileSync2(path, "utf8"));
   } catch {
     return {};
   }
 }
 function atomicWrite(path, data) {
   const tmp = `${path}.${process.pid}.tmp`;
-  const fd = openSync(tmp, "w", 384);
+  const fd = openSync2(tmp, "w", 384);
   try {
-    writeSync(fd, data);
-    fsyncSync(fd);
+    writeSync2(fd, data);
+    fsyncSync2(fd);
   } finally {
-    closeSync(fd);
+    closeSync2(fd);
   }
-  renameSync(tmp, path);
+  renameSync2(tmp, path);
+  fsyncDir(dirname2(path));
+}
+function fsyncDir(dir) {
+  let fd;
+  try {
+    fd = openSync2(dir, "r");
+  } catch {
+    return;
+  }
+  try {
+    fsyncSync2(fd);
+  } catch {
+  } finally {
+    closeSync2(fd);
+  }
 }
 function withFileLock(lockPath3, fn) {
-  const start = Date.now();
-  for (; ; ) {
-    try {
-      closeSync(openSync(lockPath3, "wx"));
-      break;
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      if (Date.now() - start > LOCK_TIMEOUT_MS) {
-        try {
-          unlinkSync(lockPath3);
-        } catch {
-        }
-      } else {
-        syncSleep(20);
-      }
-    }
-  }
-  try {
-    return fn();
-  } finally {
-    try {
-      unlinkSync(lockPath3);
-    } catch {
-    }
-  }
-}
-function syncSleep(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  return withLockfile(lockPath3, fn, {
+    onDiagnostic: (m) => process.stderr.write(`${m}
+`),
+    subject: "credential-file lock",
+    busyMessage: (holder) => `Another greenlight process${holder ? ` (pid ${holder.pid})` : ""} is writing the credential file. Wait for it to finish, then retry.`
+  });
 }
 
 // packages/cli/src/oauth/store.ts
 var store = createSecretStore({ accountPrefix: "oauth", fallbackFile: "cli-oauth.json" });
-function loadOAuthRecord(apiBase) {
+var unsaved = /* @__PURE__ */ new Map();
+function loadStored(apiBase) {
   const raw = store.read(apiBase);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
+  let record2 = {};
+  if (raw) {
+    try {
+      record2 = JSON.parse(raw);
+    } catch {
+      record2 = {};
+    }
   }
+  const pending = unsaved.get(apiBase);
+  if (pending === void 0 || !holdsPair(record2, pending.spent)) {
+    return { record: record2, overlaid: false };
+  }
+  return {
+    record: withTokens(record2, pending.live, pending.savedAt),
+    overlaid: true
+  };
+}
+function loadOAuthRecord(apiBase) {
+  return loadStored(apiBase).record;
+}
+function updateOAuthRecord(apiBase, fn) {
+  return withAuthLock(
+    apiBase,
+    () => {
+      const { record: current, overlaid } = loadStored(apiBase);
+      const next = fn(current);
+      if (next === void 0) store.remove(apiBase);
+      else if (next !== current || overlaid) store.write(apiBase, JSON.stringify(next));
+      unsaved.delete(apiBase);
+      return next;
+    },
+    (m) => process.stderr.write(`${m}
+`)
+  );
 }
 function saveOAuthRecord(apiBase, record2) {
-  store.write(apiBase, JSON.stringify(record2));
+  updateOAuthRecord(apiBase, () => record2);
 }
 function clearOAuthRecord(apiBase) {
-  store.remove(apiBase);
+  updateOAuthRecord(apiBase, () => void 0);
+}
+function commitRefreshedTokens(apiBase, refreshedFrom, next) {
+  let held = next;
+  const commit = (current2) => {
+    if (!holdsPair(current2, refreshedFrom)) {
+      held = current2.tokens ?? next;
+      return current2;
+    }
+    return withTokens(current2, next, Date.now());
+  };
+  try {
+    updateOAuthRecord(apiBase, commit);
+    return held;
+  } catch (err) {
+    if (!(err instanceof CliError) || err.code !== "auth.lock_unavailable") throw err;
+  }
+  const current = loadOAuthRecord(apiBase);
+  if (!holdsPair(current, refreshedFrom)) return current.tokens ?? next;
+  if (refreshedFrom !== void 0) {
+    const carried = unsaved.get(apiBase);
+    const spent = carried !== void 0 && sameTokens(carried.live, refreshedFrom) ? carried.spent : refreshedFrom;
+    unsaved.set(apiBase, { spent, live: next, savedAt: Date.now() });
+  }
+  process.stderr.write(
+    "[greenlight] The sign-in lock stayed busy, so the refreshed sign-in was not saved. This command continues with it; a later one may need `greenlight login`.\n"
+  );
+  return next;
+}
+function holdsPair(record2, pair) {
+  if (sameTokens(record2.tokens, pair)) return true;
+  return record2.tokens === void 0 && pair?.refresh_token !== void 0 && record2.droppedRefreshToken === pair.refresh_token;
+}
+function withTokens(record2, tokens, savedAt) {
+  const { droppedRefreshToken: _dropped, ...rest } = record2;
+  return { ...rest, tokens, tokensSavedAt: savedAt };
+}
+function sameTokens(a, b) {
+  return a?.access_token === b?.access_token && a?.refresh_token === b?.refresh_token;
 }
 
 // packages/cli/src/oauth/provider.ts
@@ -16539,6 +16758,9 @@ var GreenlightOAuthProvider = class {
   // abandoned login can never destroy a working stored credential.
   staged;
   stagedTokensWritten = false;
+  // Write-through mode: the pair last handed to the SDK, which is the pair any
+  // refresh it runs starts from.
+  tokensReadForSdk;
   read() {
     return this.staged ?? loadOAuthRecord(this.apiBase);
   }
@@ -16547,7 +16769,7 @@ var GreenlightOAuthProvider = class {
       Object.assign(this.staged, patch);
       return;
     }
-    saveOAuthRecord(this.apiBase, { ...loadOAuthRecord(this.apiBase), ...patch });
+    updateOAuthRecord(this.apiBase, (current) => ({ ...current, ...patch }));
   }
   /**
    * Persist the staged record; no-op in write-through mode. Gated on the flow
@@ -16555,7 +16777,8 @@ var GreenlightOAuthProvider = class {
    * preparatory staged edit (the dropped pairing client) never reaches the store.
    */
   commitStaged() {
-    if (this.staged && this.stagedTokensWritten) saveOAuthRecord(this.apiBase, this.staged);
+    const staged = this.staged;
+    if (staged && this.stagedTokensWritten) updateOAuthRecord(this.apiBase, () => ({ ...staged }));
   }
   get redirectUrl() {
     return this.redirect;
@@ -16580,11 +16803,17 @@ var GreenlightOAuthProvider = class {
     this.patch({ client: info });
   }
   tokens() {
-    return this.read().tokens;
+    const tokens = this.read().tokens;
+    if (!this.staged) this.tokensReadForSdk = tokens;
+    return tokens;
   }
   saveTokens(tokens) {
-    this.stagedTokensWritten = true;
-    this.patch({ tokens, tokensSavedAt: Date.now() });
+    if (this.staged) {
+      this.stagedTokensWritten = true;
+      this.patch({ tokens, tokensSavedAt: Date.now() });
+      return;
+    }
+    this.tokensReadForSdk = commitRefreshedTokens(this.apiBase, this.tokensReadForSdk, tokens);
   }
   saveCodeVerifier(codeVerifier) {
     this.patch({ codeVerifier });
@@ -16596,6 +16825,11 @@ var GreenlightOAuthProvider = class {
   }
   async redirectToAuthorization(authorizationUrl) {
     if (!this.onAuthorizationUrl) {
+      if (loadOAuthRecord(this.apiBase).tokens?.refresh_token) {
+        throw new CliError(
+          "Greenlight could not refresh your session right now. Retry in a moment."
+        );
+      }
       throw new CliError(
         "Your Greenlight session has expired. Run `greenlight login` to sign in again."
       );
@@ -16609,26 +16843,37 @@ var GreenlightOAuthProvider = class {
     return this.read().discovery;
   }
   invalidateCredentials(scope) {
-    if (!this.staged && scope === "all") {
-      clearOAuthRecord(this.apiBase);
+    if (this.staged) {
+      dropCredentials(this.staged, scope);
       return;
     }
-    const record2 = this.staged ?? loadOAuthRecord(this.apiBase);
-    if (scope === "all") {
-      for (const key of Object.keys(record2)) delete record2[key];
-    } else if (scope === "tokens") {
-      delete record2.tokens;
-      delete record2.tokensSavedAt;
-    } else if (scope === "client") {
-      delete record2.client;
-    } else if (scope === "verifier") {
-      delete record2.codeVerifier;
-    } else {
-      delete record2.discovery;
-    }
-    if (!this.staged) saveOAuthRecord(this.apiBase, record2);
+    updateOAuthRecord(this.apiBase, (current) => {
+      const judgedPair = scope === "all" || scope === "tokens" || scope === "client";
+      if (judgedPair && !sameTokens(current.tokens, this.tokensReadForSdk)) return current;
+      if (scope === "all") return void 0;
+      const record2 = { ...current };
+      dropCredentials(record2, scope);
+      if (scope === "tokens" && current.tokens?.refresh_token) {
+        record2.droppedRefreshToken = current.tokens.refresh_token;
+      }
+      return record2;
+    });
   }
 };
+function dropCredentials(record2, scope) {
+  if (scope === "all") {
+    for (const key of Object.keys(record2)) delete record2[key];
+  } else if (scope === "tokens") {
+    delete record2.tokens;
+    delete record2.tokensSavedAt;
+  } else if (scope === "client") {
+    delete record2.client;
+  } else if (scope === "verifier") {
+    delete record2.codeVerifier;
+  } else {
+    delete record2.discovery;
+  }
+}
 
 // packages/cli/src/version.ts
 import { platform as platform2 } from "node:os";
@@ -16647,7 +16892,7 @@ async function callTool(apiBase, name, args, opts = {}) {
   const provider = new GreenlightOAuthProvider(
     apiBase,
     TRANSPORT_REDIRECT,
-    randomBytes2(16).toString("base64url")
+    randomBytes3(16).toString("base64url")
   );
   const transport = new StreamableHTTPClientTransport(new URL2(`${apiBase}/mcp`), {
     authProvider: provider,
@@ -16697,7 +16942,7 @@ function fallbackToolError(content) {
   return {
     code: "validation.body_invalid",
     message: extractToolText(content) ?? "MCP tool rejected the request without a structured error.",
-    request_id: `req_local_${randomBytes2(8).toString("hex")}`
+    request_id: `req_local_${randomBytes3(8).toString("hex")}`
   };
 }
 function extractToolText(content) {
@@ -16710,12 +16955,20 @@ function extractToolText(content) {
   }
   return void 0;
 }
+var REJECTED_REQUEST = /* @__PURE__ */ new Set([
+  ErrorCode.InvalidParams,
+  ErrorCode.InvalidRequest,
+  ErrorCode.ParseError
+]);
 function mapTransportError(err) {
   if (err instanceof CliError) return err;
   if (err instanceof UnauthorizedError) {
     return sessionExpiredError();
   }
-  if (err instanceof McpError) return new CliError(`MCP request failed: ${err.message}`);
+  if (err instanceof McpError) {
+    const code = REJECTED_REQUEST.has(err.code) ? "validation.body_invalid" : "cli.error";
+    return new CliError(`MCP request failed: ${err.message}`, code, exitCodeForToolError({ code }));
+  }
   if (err instanceof Error) return new CliError(err.message);
   return new CliError(String(err));
 }
@@ -16765,10 +17018,10 @@ async function cmdPreview(apiBase, args, global) {
 }
 
 // packages/cli/src/commands/curl.ts
-import { readFileSync as readFileSync3 } from "node:fs";
+import { readFileSync as readFileSync4 } from "node:fs";
 
 // packages/cli/src/cli/payload.ts
-import { readFileSync as readFileSync2 } from "node:fs";
+import { readFileSync as readFileSync3 } from "node:fs";
 var PAYLOAD_FILE_FIELD = "__payload_file";
 var STDIN_FILE = "-";
 var DEFAULT_STDIN_TIMEOUT_MS = 1e4;
@@ -16849,7 +17102,7 @@ function payloadReadError(spec, cause) {
   return err;
 }
 function defaultReadFile(path) {
-  return readFileSync2(path, "utf8");
+  return readFileSync3(path, "utf8");
 }
 function defaultStdinIsTTY() {
   return process.stdin.isTTY === true;
@@ -16934,7 +17187,7 @@ async function cmdCurl(apiBase, args, global, deps = {}) {
 function readHeadersFile(path, read) {
   let raw;
   try {
-    raw = (read ?? ((file) => readFileSync3(file, "utf8")))(path);
+    raw = (read ?? ((file) => readFileSync4(file, "utf8")))(path);
   } catch (cause) {
     throw invalidHeaders(`Could not read --headers-file: ${message(cause)}`);
   }
@@ -17089,7 +17342,7 @@ async function cmdRepoClone(apiBase, args, global, deps = {}) {
   const repoName = readString(result.structuredContent, "repo_name");
   const expiresAt = readString(result.structuredContent, "expires_at");
   if (!authUrl) throw new CliError("getRepoAccess did not return an authenticated clone URL.");
-  const clone2 = runGit(["clone", authUrl, ...dir ? [dir] : []]);
+  const clone2 = runGit(["clone", "--", authUrl, ...dir ? [dir] : []]);
   if (clone2.status !== 0) {
     throw new CliError(`git clone failed (exit ${clone2.status ?? clone2.signal ?? "unknown"}).`);
   }
@@ -17142,6 +17395,7 @@ async function cmdRepoRefresh(apiBase, args, global, deps = {}) {
 
 // packages/cli/src/http.ts
 var REQUEST_TIMEOUT_MS = 3e4;
+var MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 async function jsonRequest(method, url2, opts = {}) {
   const headers = {
     accept: "application/json",
@@ -17158,8 +17412,9 @@ async function jsonRequest(method, url2, opts = {}) {
       body: opts.body === void 0 ? void 0 : JSON.stringify(opts.body),
       signal: AbortSignal.timeout(opts.timeoutMs ?? REQUEST_TIMEOUT_MS)
     });
-    text = await res.text();
+    text = await readCapped(res, MAX_RESPONSE_BYTES);
   } catch (err) {
+    if (err instanceof CliError) throw err;
     throw new CliError(`Request failed: ${method} ${url2} \u2014 ${describeFetchError(err)}`);
   }
   let parsed;
@@ -17169,6 +17424,30 @@ async function jsonRequest(method, url2, opts = {}) {
     parsed = { raw: text };
   }
   return { status: res.status, body: parsed };
+}
+async function readCapped(res, max) {
+  const tooLarge = () => new CliError(
+    `Response from ${res.url || "the control plane"} exceeded ${max} bytes; refusing to read it.`
+  );
+  if (Number(res.headers.get("content-length") ?? 0) > max) {
+    await res.body?.cancel();
+    throw tooLarge();
+  }
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (; ; ) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 var UNREACHABLE_CODES = /* @__PURE__ */ new Set([
   "ENOTFOUND",
@@ -17234,10 +17513,20 @@ async function refresh(apiBase, record2) {
         "Could not reach Greenlight to refresh your session. Check your connection and retry."
       );
     }
+    if (isServerFault(err)) {
+      throw new CliError("Greenlight could not refresh your session right now. Retry in a moment.");
+    }
+    const peer = loadOAuthRecord(apiBase).tokens;
+    if (peer?.access_token && peer.refresh_token !== refreshToken) return peer.access_token;
     throw sessionExpiredError();
   }
-  saveOAuthRecord(apiBase, { ...record2, tokens: next, tokensSavedAt: Date.now() });
-  return next.access_token;
+  return commitRefreshedTokens(apiBase, record2.tokens, next).access_token;
+}
+function isServerFault(err) {
+  if (!(err instanceof Error)) return false;
+  if (/^HTTP 4\d\d\b/.test(err.message)) return false;
+  if (err instanceof ServerError || err instanceof TemporarilyUnavailableError) return true;
+  return /\bHTTP 5\d\d\b/.test(err.message);
 }
 function isNetworkError(err) {
   if (!(err instanceof Error)) return false;
@@ -17251,8 +17540,9 @@ function isNetworkError(err) {
 
 // packages/cli/src/run-contract.ts
 import { spawn } from "node:child_process";
-import { readFileSync as readFileSync4 } from "node:fs";
-import { dirname as dirname2, join as join2, resolve } from "node:path";
+import { readFileSync as readFileSync5 } from "node:fs";
+import { constants as osConstants } from "node:os";
+import { dirname as dirname3, join as join3, resolve } from "node:path";
 var MAX_TIMER_MS = 2147483647;
 var KILL_ESCALATION_MS = 5e3;
 var GROUP_POLL_MS = 50;
@@ -17277,11 +17567,11 @@ function findAppId(cwd) {
   let dir = resolve(cwd);
   for (let i = 0; i < 8; i += 1) {
     try {
-      const text = readFileSync4(join2(dir, "greenlight.yml"), "utf8");
+      const text = readFileSync5(join3(dir, "greenlight.yml"), "utf8");
       return text.match(/^app_id:\s*["']?([^"'\s#]+)/m)?.[1] ?? null;
     } catch {
     }
-    const parent = dirname2(dir);
+    const parent = dirname3(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -17290,7 +17580,7 @@ function findAppId(cwd) {
 function parseEnvFile(path) {
   let text;
   try {
-    text = readFileSync4(path, "utf8");
+    text = readFileSync5(path, "utf8");
   } catch {
     throw new CliError(`Could not read --env-file '${path}'.`);
   }
@@ -17433,7 +17723,7 @@ function spawnChild(devCommand, contract) {
       reject(new CliError(`Failed to start \`${cmd}\`: ${err.message}`));
     });
     child.on("exit", (code, signal) => {
-      const result = signal ? 1 : code ?? 0;
+      const result = signal ? 128 + (osConstants.signals[signal] ?? 0) : code ?? 0;
       if (terminating && !sigkillSent && groupAlive()) {
         pendingExit = result;
         groupPoll = setInterval(() => {
@@ -17592,9 +17882,9 @@ async function cmdRun(apiBase, opts, devCommand) {
 }
 
 // packages/cli/src/commands/knowledge-asset.ts
-import { createHash as createHash2 } from "node:crypto";
-import { lstatSync, mkdirSync as mkdirSync2, unlinkSync as unlinkSync2, writeFileSync } from "node:fs";
-import { dirname as dirname3 } from "node:path";
+import { createHash as createHash3 } from "node:crypto";
+import { lstatSync, mkdirSync as mkdirSync3, unlinkSync as unlinkSync2, writeFileSync } from "node:fs";
+import { dirname as dirname4 } from "node:path";
 var KNOWLEDGE_ASSET_GET_FLAGS = {
   id: {
     field: "id",
@@ -17679,7 +17969,7 @@ async function cmdKnowledgeAssetGet(apiBase, argv, global) {
     );
   }
   const bytes = Buffer.from(await response.arrayBuffer());
-  const actual = createHash2("sha256").update(bytes).digest("hex");
+  const actual = createHash3("sha256").update(bytes).digest("hex");
   if (actual !== asset.checksum_sha256) {
     throw new CliError(
       `Checksum mismatch: expected ${asset.checksum_sha256}, got ${actual}. Nothing was written.`,
@@ -17687,7 +17977,7 @@ async function cmdKnowledgeAssetGet(apiBase, argv, global) {
       1
     );
   }
-  mkdirSync2(dirname3(outPath), { recursive: true });
+  mkdirSync3(dirname4(outPath), { recursive: true });
   try {
     const existing = lstatSync(outPath, { throwIfNoEntry: false });
     if (existing?.isSymbolicLink()) unlinkSync2(outPath);
@@ -18553,116 +18843,6 @@ function clearPending(apiBase) {
   store2.remove(apiBase);
 }
 
-// packages/cli/src/auth-lock.ts
-import { createHash as createHash3 } from "node:crypto";
-import {
-  closeSync as closeSync2,
-  fsyncSync as fsyncSync2,
-  mkdirSync as mkdirSync3,
-  openSync as openSync2,
-  readFileSync as readFileSync5,
-  statSync,
-  unlinkSync as unlinkSync3,
-  writeSync as writeSync2
-} from "node:fs";
-import { homedir as homedir2, hostname as hostname2 } from "node:os";
-import { join as join3 } from "node:path";
-var ACQUIRE_TIMEOUT_MS = 5e3;
-var RETRY_MS = 25;
-var authStatePath = (apiBase, extension) => join3(
-  homedir2(),
-  ".greenlight",
-  `auth-${createHash3("sha256").update(apiBase, "utf8").digest("hex").slice(0, 16)}.${extension}`
-);
-var lockPath = (apiBase) => authStatePath(apiBase, "lock");
-function ensureAuthStateDir() {
-  mkdirSync3(join3(homedir2(), ".greenlight"), { recursive: true, mode: 448 });
-}
-function holderIsGone(holder) {
-  if (holder.host !== hostname2()) return false;
-  try {
-    process.kill(holder.pid, 0);
-    return false;
-  } catch (err) {
-    return err.code === "ESRCH";
-  }
-}
-function readHolder(path) {
-  try {
-    const parsed = JSON.parse(readFileSync5(path, "utf8"));
-    if (typeof parsed.pid === "number" && typeof parsed.host === "string") {
-      return { pid: parsed.pid, host: parsed.host, at: parsed.at ?? 0 };
-    }
-  } catch {
-  }
-  return void 0;
-}
-function withAuthLock(apiBase, fn, onDiagnostic) {
-  const path = lockPath(apiBase);
-  ensureAuthStateDir();
-  const start = Date.now();
-  for (; ; ) {
-    try {
-      const fd = openSync2(path, "wx", 384);
-      try {
-        const holder = { pid: process.pid, host: hostname2(), at: Date.now() };
-        writeSync2(fd, JSON.stringify(holder));
-        fsyncSync2(fd);
-      } finally {
-        closeSync2(fd);
-      }
-      break;
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      const holder = readHolder(path);
-      if (holder !== void 0 && holderIsGone(holder)) {
-        onDiagnostic?.(
-          `[greenlight] Reclaiming an auth lock left by process ${holder.pid}, which is no longer running.`
-        );
-        reclaim(path);
-        continue;
-      }
-      if (holder === void 0 && fileOlderThan(path, ACQUIRE_TIMEOUT_MS)) {
-        onDiagnostic?.("[greenlight] Reclaiming an auth lock left with no owner recorded.");
-        reclaim(path);
-        continue;
-      }
-      if (Date.now() - start > ACQUIRE_TIMEOUT_MS) {
-        throw new CliError(
-          holder !== void 0 ? `Another greenlight process (pid ${holder.pid}) is holding the sign-in lock. Wait for it to finish, then retry.` : "The sign-in lock is held by another greenlight process. Wait for it to finish, then retry.",
-          "auth.lock_unavailable",
-          3
-        );
-      }
-      sleepSync(RETRY_MS);
-    }
-  }
-  try {
-    return fn();
-  } finally {
-    try {
-      unlinkSync3(path);
-    } catch {
-    }
-  }
-}
-function fileOlderThan(path, ms) {
-  try {
-    return Date.now() - statSync(path).mtimeMs > ms;
-  } catch {
-    return false;
-  }
-}
-function reclaim(path) {
-  try {
-    unlinkSync3(path);
-  } catch {
-  }
-}
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 // packages/cli/src/commands/logout.ts
 function cmdLogout(apiBase) {
   withAuthLock(
@@ -18685,9 +18865,9 @@ import {
   readdirSync,
   readFileSync as readFileSync7,
   readSync,
-  renameSync as renameSync3,
+  renameSync as renameSync4,
   statSync as statSync2,
-  unlinkSync as unlinkSync4,
+  unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync3
 } from "node:fs";
 import { platform as platform3 } from "node:os";
@@ -18996,7 +19176,7 @@ function digestOf(state) {
 
 // packages/cli/src/org-settings.ts
 import { createHash as createHash5 } from "node:crypto";
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync6, renameSync as renameSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync6, renameSync as renameSync3, writeFileSync as writeFileSync2 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join4 } from "node:path";
 var FLAG_NAMES = ["feedback_observer_reports", "agent_token_usage_reports"];
@@ -19057,7 +19237,7 @@ function writeCache(path, record2) {
     mkdirSync4(join4(path, ".."), { recursive: true, mode: 448 });
     const tmp = `${path}.${process.pid}.tmp`;
     writeFileSync2(tmp, JSON.stringify(record2), { mode: 384 });
-    renameSync2(tmp, path);
+    renameSync3(tmp, path);
   } catch {
   }
 }
@@ -19071,8 +19251,10 @@ var TITLE_MAX = 200;
 async function cmdObserveHook(resolveApiBase2, args, deps = {}) {
   try {
     const apiBase = resolveApiBase2();
-    if (args[0] === "--job" && typeof args[1] === "string") {
-      await runJob(apiBase, args[1], deps);
+    const { flag, inline } = splitFlag(args[0] ?? "");
+    const jobPath = inline ?? args[1];
+    if (flag === "--job" && typeof jobPath === "string") {
+      await runJob(apiBase, jobPath, deps);
     } else if (!(deps.env ?? process.env)[OBSERVER_CHILD_ENV]) {
       await observe(apiBase, deps);
     }
@@ -19170,7 +19352,7 @@ function pruneOldState(apiBase, now) {
     if (name === "filed.json") continue;
     const path = join5(dir, name);
     try {
-      if (now - statSync2(path).mtimeMs > STATE_MAX_AGE_MS) unlinkSync4(path);
+      if (now - statSync2(path).mtimeMs > STATE_MAX_AGE_MS) unlinkSync3(path);
     } catch {
     }
   }
@@ -19218,11 +19400,11 @@ function saveJson(path, value) {
   mkdirSync5(join5(path, ".."), { recursive: true, mode: 448 });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync3(tmp, JSON.stringify(value), { mode: 384 });
-  renameSync3(tmp, path);
+  renameSync4(tmp, path);
 }
 function unlinkQuiet(path) {
   try {
-    unlinkSync4(path);
+    unlinkSync3(path);
   } catch {
   }
 }
@@ -19252,13 +19434,13 @@ import {
   readdirSync as readdirSync2,
   readFileSync as readFileSync8,
   readSync as readSync2,
-  renameSync as renameSync4,
+  renameSync as renameSync5,
   statSync as statSync3,
-  unlinkSync as unlinkSync5,
+  unlinkSync as unlinkSync4,
   writeFileSync as writeFileSync4
 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname4, isAbsolute as isAbsolute2, join as join6 } from "node:path";
+import { basename, dirname as dirname5, isAbsolute as isAbsolute2, join as join6 } from "node:path";
 
 // packages/cli/src/token-usage/transcript.ts
 var TOKEN_CLASSES = [
@@ -19467,10 +19649,12 @@ var FINAL_REFUSALS = /* @__PURE__ */ new Set([400, 403, 404]);
 async function cmdTokenUsageHook(resolveApiBase2, args, deps = {}) {
   try {
     const apiBase = resolveApiBase2();
-    if (args[0] === "--job" && typeof args[1] === "string") {
-      await runJob2(apiBase, args[1], deps);
+    const { flag, inline } = splitFlag(args[0] ?? "");
+    const value = inline ?? args[1];
+    if (flag === "--job" && typeof value === "string") {
+      await runJob2(apiBase, value, deps);
     } else if (!(deps.env ?? process.env)[OBSERVER_CHILD_ENV]) {
-      const client = args[0] === "--client" ? args[1] : "claude-code";
+      const client = flag === "--client" ? value : "claude-code";
       if (isClient(client)) await handOff(apiBase, client, deps);
     }
   } catch {
@@ -19612,7 +19796,7 @@ function transcriptFiles(client, transcript, sessionId) {
   if (!transcript) return [];
   const files = [transcript];
   if (client !== "claude-code") return files;
-  const subagents = join6(dirname4(transcript), sessionId, "subagents");
+  const subagents = join6(dirname5(transcript), sessionId, "subagents");
   try {
     for (const name of readdirSync2(subagents).sort()) {
       if (name.endsWith(".jsonl")) files.push(join6(subagents, name));
@@ -19685,7 +19869,7 @@ function pruneOldState2(state, now) {
     try {
       const record2 = name.endsWith(".job.json") ? void 0 : readJson2(path);
       const since = typeof record2?.created_at === "number" ? record2.created_at : statSync3(path).mtimeMs;
-      if (now - since > RETRY_WINDOW_MS) unlinkSync5(path);
+      if (now - since > RETRY_WINDOW_MS) unlinkSync4(path);
     } catch {
     }
   }
@@ -19717,7 +19901,7 @@ function lockAge(path) {
 }
 function claim2(path) {
   try {
-    mkdirSync6(dirname4(path), { recursive: true, mode: 448 });
+    mkdirSync6(dirname5(path), { recursive: true, mode: 448 });
     closeSync4(openSync4(path, "wx", 384));
     return true;
   } catch {
@@ -19749,14 +19933,14 @@ function readJson2(path) {
   }
 }
 function saveJson2(path, value) {
-  mkdirSync6(dirname4(path), { recursive: true, mode: 448 });
+  mkdirSync6(dirname5(path), { recursive: true, mode: 448 });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync4(tmp, JSON.stringify(value), { mode: 384 });
-  renameSync4(tmp, path);
+  renameSync5(tmp, path);
 }
 function unlinkQuiet2(path) {
   try {
-    unlinkSync5(path);
+    unlinkSync4(path);
   } catch {
   }
 }
@@ -19778,7 +19962,7 @@ function readStdin3() {
 }
 
 // packages/cli/src/auth-inflight.ts
-import { closeSync as closeSync5, fsyncSync as fsyncSync3, openSync as openSync5, unlinkSync as unlinkSync6, writeSync as writeSync3 } from "node:fs";
+import { closeSync as closeSync5, fsyncSync as fsyncSync3, openSync as openSync5, unlinkSync as unlinkSync5, writeSync as writeSync3 } from "node:fs";
 import { hostname as hostname3 } from "node:os";
 var markerPath = (apiBase) => authStatePath(apiBase, "inflight");
 var MAX_INFLIGHT_AGE_MS = 12e4;
@@ -19802,7 +19986,7 @@ function releaseInflight(apiBase) {
   if (existing === void 0) return;
   if (existing.pid !== process.pid || existing.host !== hostname3()) return;
   try {
-    unlinkSync6(markerPath(apiBase));
+    unlinkSync5(markerPath(apiBase));
   } catch {
   }
 }
@@ -19889,7 +20073,7 @@ function launchBrowserOpener(opener, url2, boundMs = LAUNCH_BOUND_MS) {
 }
 
 // packages/cli/src/oauth/login.ts
-import { randomBytes as randomBytes3 } from "node:crypto";
+import { randomBytes as randomBytes4 } from "node:crypto";
 import { createServer } from "node:http";
 import { URL as URL3 } from "node:url";
 var DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1e3;
@@ -19972,7 +20156,7 @@ async function runLoopbackFlow(apiBase, flow) {
   });
   launchGate.catch(() => {
   });
-  const state = randomBytes3(16).toString("base64url");
+  const state = randomBytes4(16).toString("base64url");
   const binding = startLoopback(state, apiBase);
   binding.catch(() => {
   });
@@ -20124,7 +20308,7 @@ function sendFailurePage(res) {
 }
 
 // packages/cli/src/commands/sign-in-pairing.ts
-import { createHash as createHash6, randomBytes as randomBytes4 } from "node:crypto";
+import { createHash as createHash6, randomBytes as randomBytes5 } from "node:crypto";
 var RESUME_POLL_MS = 4e4;
 var FULL_WAIT_MS = 10 * 60 * 1e3;
 var HEARTBEAT_MS = 1e4;
@@ -20134,7 +20318,7 @@ var CODE_LENGTH = 6;
 function pickSymbol() {
   const limit2 = 256 - 256 % CODE_ALPHABET.length;
   for (; ; ) {
-    const [byte] = randomBytes4(1);
+    const [byte] = randomBytes5(1);
     if (byte === void 0 || byte >= limit2) continue;
     const symbol = CODE_ALPHABET[byte % CODE_ALPHABET.length];
     if (symbol !== void 0) return symbol;
@@ -20546,7 +20730,22 @@ function resolveApiBase() {
       2
     );
   }
+  if (!isHttpUrl(base)) {
+    throw new CliError(
+      `The control-plane URL ${JSON.stringify(base)} is not an http(s) URL. Set GREENLIGHT_API_URL to one, e.g. https://greenlight.example.com.`,
+      "cli.not_configured",
+      2
+    );
+  }
   return base;
+}
+function isHttpUrl(value) {
+  try {
+    const url2 = new URL(value);
+    return (url2.protocol === "https:" || url2.protocol === "http:") && url2.hostname !== "";
+  } catch {
+    return false;
+  }
 }
 
 // packages/cli/src/index.ts
@@ -20561,12 +20760,16 @@ function parseLoginArgs(rest) {
   let waitRequested = false;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
-    if (arg === "--wait") {
+    const { flag, inline } = splitFlag(arg);
+    if ((flag === "--wait" || flag === "--loopback") && inline !== void 0) {
+      throw new CliError(`${flag} takes no value.`, "validation.body_invalid", 2);
+    }
+    if (flag === "--wait") {
       out.wait = true;
       waitRequested = true;
-    } else if (arg === "--loopback") out.loopback = true;
-    else if (arg === "--timeout") {
-      const seconds = Number(rest[i + 1]);
+    } else if (flag === "--loopback") out.loopback = true;
+    else if (flag === "--timeout") {
+      const seconds = Number(inline ?? rest[i + 1]);
       if (!Number.isFinite(seconds) || seconds <= 0) {
         throw new CliError(
           "--timeout expects a positive number of seconds.",
@@ -20576,7 +20779,7 @@ function parseLoginArgs(rest) {
       }
       out.timeoutMs = seconds * 1e3;
       out.wait = true;
-      i += 1;
+      if (inline === void 0) i += 1;
     } else {
       throw new CliError(
         `Unknown login argument: ${arg}. Accepted: --wait, --timeout <seconds>, --loopback.`,
@@ -20596,12 +20799,6 @@ function parseLoginArgs(rest) {
 }
 function parseRunArgs(after) {
   const opts = { env: {} };
-  const value = (i2, flag) => {
-    const v = after[i2 + 1];
-    if (v === void 0)
-      throw new CliError(`${flag} requires a value.`, "validation.body_invalid", 2);
-    return v;
-  };
   let i = 0;
   while (i < after.length) {
     const arg = after[i];
@@ -20609,28 +20806,36 @@ function parseRunArgs(after) {
       i += 1;
       break;
     }
-    if (arg === "--app") {
-      opts.appId = value(i, "--app");
-      i += 2;
+    const { flag, inline } = splitFlag(arg);
+    const value = () => {
+      const v = inline ?? after[i + 1];
+      if (v === void 0)
+        throw new CliError(`${flag} requires a value.`, "validation.body_invalid", 2);
+      return v;
+    };
+    const width = inline === void 0 ? 2 : 1;
+    if (flag === "--app") {
+      opts.appId = value();
+      i += width;
       continue;
     }
-    if (arg === "--env") {
-      const pair = value(i, "--env");
+    if (flag === "--env") {
+      const pair = value();
       const eq = pair.indexOf("=");
       if (eq <= 0) {
         throw new CliError("--env expects KEY=VALUE.", "validation.body_invalid", 2);
       }
       opts.env[pair.slice(0, eq)] = pair.slice(eq + 1);
-      i += 2;
+      i += width;
       continue;
     }
-    if (arg === "--env-file") {
-      opts.envFile = value(i, "--env-file");
-      i += 2;
+    if (flag === "--env-file") {
+      opts.envFile = value();
+      i += width;
       continue;
     }
-    if (arg === "--credential") {
-      const pick2 = value(i, "--credential");
+    if (flag === "--credential") {
+      const pick2 = value();
       if (!/^[^~]+~[^~]+$/.test(pick2)) {
         throw new CliError(
           "--credential expects <integration>~<credential>.",
@@ -20639,11 +20844,11 @@ function parseRunArgs(after) {
         );
       }
       opts.credentials = [...opts.credentials ?? [], pick2];
-      i += 2;
+      i += width;
       continue;
     }
     if (arg?.startsWith("-")) {
-      const { text, details } = flagGuidance(arg.replace(/^-+/, ""), RUN_FLAGS);
+      const { text, details } = flagGuidance(flag.replace(/^-+/, ""), RUN_FLAGS);
       const err = new CliError(
         `Unknown run flag: ${arg}.${text} Put the dev command after \`--\`.`,
         "validation.unknown_flag",
@@ -20763,5 +20968,6 @@ if (isMain) {
 export {
   LOCAL_COMMAND_NAMES,
   main,
-  parseLoginArgs
+  parseLoginArgs,
+  parseRunArgs
 };
