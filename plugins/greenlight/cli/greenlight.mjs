@@ -7479,7 +7479,7 @@ function localRequestId() {
 }
 
 // packages/cli/src/mcp/transport.ts
-import { randomBytes as randomBytes3 } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import { URL as URL2 } from "node:url";
 
 // node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/core.js
@@ -14757,8 +14757,8 @@ async function random(size) {
   const evenDistCutoff = Math.pow(2, 8) - Math.pow(2, 8) % mask.length;
   let result = "";
   while (result.length < size) {
-    const randomBytes6 = await getRandomValues(size - result.length);
-    for (const randomByte of randomBytes6) {
+    const randomBytes5 = await getRandomValues(size - result.length);
+    for (const randomByte of randomBytes5) {
       if (randomByte < evenDistCutoff) {
         result += mask[randomByte % mask.length];
       }
@@ -16365,15 +16365,13 @@ var StreamableHTTPClientTransport = class {
 };
 
 // packages/cli/src/auth-lock.ts
-import { createHash, randomBytes as randomBytes2 } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   fsyncSync,
-  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
   statSync,
   unlinkSync,
   writeSync
@@ -16432,40 +16430,20 @@ function withLockfile(path, fn, opts) {
   const start = Date.now();
   let mine;
   for (; ; ) {
-    try {
-      const fd = openSync(path, "wx", 384);
-      try {
-        mine = { pid: process.pid, host: hostname2(), at: Date.now() };
-        writeSync(fd, JSON.stringify(mine));
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
-      }
-      break;
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      const holder = readHolder(path);
-      if (holder !== void 0 && holderIsGone(holder)) {
-        if (reclaim(path, holder)) {
-          opts.onDiagnostic?.(
-            `[greenlight] Reclaimed an ${opts.subject} left by process ${holder.pid}, which is no longer running.`
-          );
-        }
-        continue;
-      }
-      if (holder === void 0 && fileOlderThan(path, ACQUIRE_TIMEOUT_MS)) {
-        if (reclaim(path, void 0)) {
-          opts.onDiagnostic?.(
-            `[greenlight] Reclaimed an ${opts.subject} left with no owner recorded.`
-          );
-        }
-        continue;
-      }
-      if (Date.now() - start > ACQUIRE_TIMEOUT_MS) {
-        throw new CliError(opts.busyMessage(holder), "auth.lock_unavailable", 3);
-      }
-      sleepSync(RETRY_MS);
+    mine = tryCreate(path);
+    if (mine !== void 0) break;
+    const holder = readHolder(path);
+    const reclaimed = abandonment(path, holder) !== void 0 ? reclaim(path) : void 0;
+    if (reclaimed !== void 0) {
+      opts.onDiagnostic?.(
+        reclaimed.holder !== void 0 ? `[greenlight] Reclaimed an ${opts.subject} left by process ${reclaimed.holder.pid}, which is no longer running.` : `[greenlight] Reclaimed an ${opts.subject} left with no owner recorded.`
+      );
+      continue;
     }
+    if (Date.now() - start > ACQUIRE_TIMEOUT_MS) {
+      throw new CliError(opts.busyMessage(holder), "auth.lock_unavailable", 3);
+    }
+    sleepSync(RETRY_MS);
   }
   heldLocks.set(path, 0);
   try {
@@ -16483,33 +16461,53 @@ function withLockfile(path, fn, opts) {
 function sameHolder(a, b) {
   return a !== void 0 && a.pid === b.pid && a.host === b.host && a.at === b.at;
 }
-function fileOlderThan(path, ms) {
+function tryCreate(path) {
+  let fd;
   try {
-    return Date.now() - statSync(path).mtimeMs > ms;
-  } catch {
-    return false;
+    fd = openSync(path, "wx", 384);
+  } catch (err) {
+    if (err.code === "EEXIST") return void 0;
+    throw err;
+  }
+  try {
+    const mine = { pid: process.pid, host: hostname2(), at: Date.now() };
+    writeSync(fd, JSON.stringify(mine));
+    fsyncSync(fd);
+    return mine;
+  } finally {
+    closeSync(fd);
   }
 }
-function reclaim(path, judged) {
-  const taken = `${path}.reclaim-${process.pid}-${randomBytes2(4).toString("hex")}`;
+function abandonment(path, holder) {
+  if (holder !== void 0) return holderIsGone(holder) ? { holder } : void 0;
   try {
-    renameSync(path, taken);
+    return Date.now() - statSync(path).mtimeMs > ACQUIRE_TIMEOUT_MS ? { holder: void 0 } : void 0;
   } catch {
-    return false;
+    return void 0;
   }
-  const found = readHolder(taken);
-  const sameEvidence = judged === void 0 ? found === void 0 && fileOlderThan(taken, ACQUIRE_TIMEOUT_MS) : sameHolder(found, judged);
-  if (!sameEvidence) {
-    try {
-      linkSync(taken, path);
-    } catch {
+}
+function reclaim(path) {
+  const marker = `${path}.reclaim`;
+  const mine = tryCreate(marker);
+  if (mine === void 0) {
+    if (abandonment(marker, readHolder(marker)) !== void 0) reclaim(marker);
+    return void 0;
+  }
+  try {
+    const evidence = abandonment(path, readHolder(path));
+    if (evidence === void 0) return void 0;
+    unlinkSync(path);
+    return evidence;
+  } catch {
+    return void 0;
+  } finally {
+    if (sameHolder(readHolder(marker), mine)) {
+      try {
+        unlinkSync(marker);
+      } catch {
+      }
     }
   }
-  try {
-    unlinkSync(taken);
-  } catch {
-  }
-  return sameEvidence;
 }
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -16525,7 +16523,7 @@ import {
   mkdirSync as mkdirSync2,
   openSync as openSync2,
   readFileSync as readFileSync2,
-  renameSync as renameSync2,
+  renameSync,
   writeSync as writeSync2
 } from "node:fs";
 import { homedir as homedir2, platform } from "node:os";
@@ -16630,7 +16628,7 @@ function atomicWrite(path, data) {
   } finally {
     closeSync2(fd);
   }
-  renameSync2(tmp, path);
+  renameSync(tmp, path);
   fsyncDir(dirname2(path));
 }
 function fsyncDir(dir) {
@@ -16892,7 +16890,7 @@ async function callTool(apiBase, name, args, opts = {}) {
   const provider = new GreenlightOAuthProvider(
     apiBase,
     TRANSPORT_REDIRECT,
-    randomBytes3(16).toString("base64url")
+    randomBytes2(16).toString("base64url")
   );
   const transport = new StreamableHTTPClientTransport(new URL2(`${apiBase}/mcp`), {
     authProvider: provider,
@@ -16916,7 +16914,7 @@ async function callTool(apiBase, name, args, opts = {}) {
     );
     const structuredContent = normalizeStructuredContent(result.structuredContent);
     return {
-      structuredContent: result.isError === true && !hasCanonicalCode(structuredContent) ? fallbackToolError(result.content) : structuredContent,
+      structuredContent: result.isError === true && !hasCanonicalCode(structuredContent) ? canonicalErrorText(result.content) ?? fallbackToolError(result.content) : structuredContent,
       isError: result.isError === true
     };
   } catch (err) {
@@ -16938,11 +16936,21 @@ function normalizeStructuredContent(value) {
 function hasCanonicalCode(value) {
   return typeof value["code"] === "string" && value["code"] !== "";
 }
+function canonicalErrorText(content) {
+  const text = extractToolText(content);
+  if (text === void 0) return void 0;
+  try {
+    const parsed = normalizeStructuredContent(JSON.parse(text));
+    return hasCanonicalCode(parsed) ? parsed : void 0;
+  } catch {
+    return void 0;
+  }
+}
 function fallbackToolError(content) {
   return {
     code: "validation.body_invalid",
     message: extractToolText(content) ?? "MCP tool rejected the request without a structured error.",
-    request_id: `req_local_${randomBytes3(8).toString("hex")}`
+    request_id: `req_local_${randomBytes2(8).toString("hex")}`
   };
 }
 function extractToolText(content) {
@@ -18865,7 +18873,7 @@ import {
   readdirSync,
   readFileSync as readFileSync7,
   readSync,
-  renameSync as renameSync4,
+  renameSync as renameSync3,
   statSync as statSync2,
   unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync3
@@ -19176,7 +19184,7 @@ function digestOf(state) {
 
 // packages/cli/src/org-settings.ts
 import { createHash as createHash5 } from "node:crypto";
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync6, renameSync as renameSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync6, renameSync as renameSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join4 } from "node:path";
 var FLAG_NAMES = ["feedback_observer_reports", "agent_token_usage_reports"];
@@ -19237,7 +19245,7 @@ function writeCache(path, record2) {
     mkdirSync4(join4(path, ".."), { recursive: true, mode: 448 });
     const tmp = `${path}.${process.pid}.tmp`;
     writeFileSync2(tmp, JSON.stringify(record2), { mode: 384 });
-    renameSync3(tmp, path);
+    renameSync2(tmp, path);
   } catch {
   }
 }
@@ -19400,7 +19408,7 @@ function saveJson(path, value) {
   mkdirSync5(join5(path, ".."), { recursive: true, mode: 448 });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync3(tmp, JSON.stringify(value), { mode: 384 });
-  renameSync4(tmp, path);
+  renameSync3(tmp, path);
 }
 function unlinkQuiet(path) {
   try {
@@ -19434,7 +19442,7 @@ import {
   readdirSync as readdirSync2,
   readFileSync as readFileSync8,
   readSync as readSync2,
-  renameSync as renameSync5,
+  renameSync as renameSync4,
   statSync as statSync3,
   unlinkSync as unlinkSync4,
   writeFileSync as writeFileSync4
@@ -19936,7 +19944,7 @@ function saveJson2(path, value) {
   mkdirSync6(dirname5(path), { recursive: true, mode: 448 });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync4(tmp, JSON.stringify(value), { mode: 384 });
-  renameSync5(tmp, path);
+  renameSync4(tmp, path);
 }
 function unlinkQuiet2(path) {
   try {
@@ -20073,7 +20081,7 @@ function launchBrowserOpener(opener, url2, boundMs = LAUNCH_BOUND_MS) {
 }
 
 // packages/cli/src/oauth/login.ts
-import { randomBytes as randomBytes4 } from "node:crypto";
+import { randomBytes as randomBytes3 } from "node:crypto";
 import { createServer } from "node:http";
 import { URL as URL3 } from "node:url";
 var DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1e3;
@@ -20156,7 +20164,7 @@ async function runLoopbackFlow(apiBase, flow) {
   });
   launchGate.catch(() => {
   });
-  const state = randomBytes4(16).toString("base64url");
+  const state = randomBytes3(16).toString("base64url");
   const binding = startLoopback(state, apiBase);
   binding.catch(() => {
   });
@@ -20308,7 +20316,7 @@ function sendFailurePage(res) {
 }
 
 // packages/cli/src/commands/sign-in-pairing.ts
-import { createHash as createHash6, randomBytes as randomBytes5 } from "node:crypto";
+import { createHash as createHash6, randomBytes as randomBytes4 } from "node:crypto";
 var RESUME_POLL_MS = 4e4;
 var FULL_WAIT_MS = 10 * 60 * 1e3;
 var HEARTBEAT_MS = 1e4;
@@ -20318,7 +20326,7 @@ var CODE_LENGTH = 6;
 function pickSymbol() {
   const limit2 = 256 - 256 % CODE_ALPHABET.length;
   for (; ; ) {
-    const [byte] = randomBytes5(1);
+    const [byte] = randomBytes4(1);
     if (byte === void 0 || byte >= limit2) continue;
     const symbol = CODE_ALPHABET[byte % CODE_ALPHABET.length];
     if (symbol !== void 0) return symbol;
