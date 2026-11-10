@@ -963,7 +963,7 @@ Call the publisher's URL with ordinary HTTPS from the app. Do not add a `grants:
 send the call through `GREENLIGHT_PROXY_URL`, and do not ask the user or IT to register the
 publisher as an integration. Do not route it through the proxy just to keep the call on record.
 
-While app egress is unrestricted — the default — that call works. Do not tell the user it will
+App egress is unrestricted, so that call works. Do not tell the user it will
 fail on a current install, and do not promise it still will if their company later locks outbound
 traffic down.
 
@@ -1011,6 +1011,8 @@ A granted integration reaches its upstream one of two ways, set per-integration 
   env-var name (shown by `getApp`). Read it from `process.env` and call the upstream with it.
 
 Either way, never hardcode or commit a credential.
+
+Before providing an API to other Greenlight apps (`api:` in `greenlight.yml`) or calling one (a `listGrantableIntegrations` item with `kind: "app"`), read the bundled [app-apis skill](../app-apis/SKILL.md) in full.
 
 **Decide whose identity each feature acts as, and ask when the request leaves it open.** Many
 systems can be reached two ways: as the person using the app (a user passthrough integration,

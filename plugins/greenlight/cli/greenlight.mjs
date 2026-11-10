@@ -18135,6 +18135,18 @@ var MCP_COMMANDS = {
       }
     }
   },
+  "integrations api": {
+    tool: "getAppApi",
+    summary: "Show another app's published API: scopes, base path and OpenAPI document.",
+    flags: {
+      integration: {
+        field: "integration",
+        type: "string",
+        required: true,
+        describe: 'App API integration slug (an `integrations list` item with kind "app").'
+      }
+    }
+  },
   request: {
     tool: "requestCredentialAccess",
     summary: "Request personal access to a credential (granted or pending in the output's status).",
