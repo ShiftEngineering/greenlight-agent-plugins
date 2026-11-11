@@ -160,6 +160,16 @@ rules, call `getPolicies()` — it returns each check with its enforcement level
 such as the approved base-image list, so you can satisfy the gate before pushing rather than
 after it fails. A check reporting `inactive_reason` will not fire, so do not code around it.
 
+**Required org Knowledge is binding.** `registerApp` and `getApp` return `required_knowledge`:
+the org entries IT marked required for every app, with their full bodies (`knowledgeList` and
+`knowledgeGet` also mark them `required: true`). Read every one before you write code and follow
+it in full; a required `design-system` entry decides the app's fonts, colours, logo and
+components, not your defaults. If the user asks you to deviate from a required entry, don't. Tell
+them IT requires it for every app, and that an IT admin can change or lift it in the dashboard
+under Knowledge. Entries that are not required are guidance: follow them by default, and when the
+user chooses to deviate, do what they asked and say in the PR description which guidance you
+departed from.
+
 **Never invent the company's mark.** Wherever an app shows the **organization's** logo,
 wordmark, or favicon — a header, a login screen, a nav bar, a footer, a favicon — look up the real
 one and use it:
