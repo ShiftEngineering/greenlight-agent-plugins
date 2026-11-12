@@ -661,12 +661,12 @@ Grants are request signals, not merge blockers: an auto-approved grant works the
 merges; an IT-required grant deploys in `pending` and the proxy returns `403` for it until IT
 approves out of band (no redeploy needed). Watch grant status in `getApp`.
 
-**The provisioned `postgres` resource is a managed PostgreSQL 16 server — Azure Database for
+**The provisioned `postgres` resource is a managed PostgreSQL server (16 or later) — Azure Database for
 PostgreSQL on Azure, Cloud SQL on GCP, RDS on AWS — and `CREATE EXTENSION` is not allowed for app
 users** — a migration that runs
 `CREATE EXTENSION pgcrypto` (or `uuid-ossp`) passes the build and then crash-loops the pod on
-first boot. Write schemas that need no extensions: `gen_random_uuid()` is built into Postgres 16
-core (no pgcrypto required), or generate ids in app code (`crypto.randomUUID()`).
+first boot. Write schemas that need no extensions: `gen_random_uuid()` is built into Postgres
+core since 13 (no pgcrypto required), or generate ids in app code (`crypto.randomUUID()`).
 
 ## Personal data access (no app needed)
 
