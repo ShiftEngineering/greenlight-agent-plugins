@@ -18055,6 +18055,33 @@ var reasonRequired = {
   required: true,
   describe: "Audit reason."
 };
+var roleRequired = {
+  field: "role",
+  type: "string",
+  required: true,
+  describe: "A role declared in greenlight.yml."
+};
+var holderFlags = {
+  email: { field: "holder.email", type: "string", describe: "A person's email." },
+  group: { field: "holder.group", type: "string", describe: "A Greenlight group name." },
+  "idp-group": {
+    field: "holder.idp_group",
+    type: "string",
+    describe: "The label IT registered a directory group under."
+  },
+  "user-id": {
+    field: "holder.user_id",
+    type: "string",
+    format: "uuid",
+    describe: "A person by their user id (from `people search`)."
+  },
+  "idp-group-id": {
+    field: "holder.idp_group_registration_id",
+    type: "string",
+    format: "uuid",
+    describe: "A registered IdP group by its registration id (from `people search`)."
+  }
+};
 var userEmailRequired = {
   field: "user_email",
   type: "string",
@@ -18609,6 +18636,51 @@ var MCP_COMMANDS = {
     summary: "Remove an app co-owner by email.",
     flags: { app: appRequired, email: userEmailRequired, reason: reasonRequired }
   },
+  "people search": {
+    tool: "searchPeopleAndGroups",
+    summary: "Find people, Greenlight groups and registered IdP groups to assign to a role.",
+    positional: ["term"],
+    flags: {
+      app: appRequired,
+      term: {
+        field: "q",
+        type: "string",
+        required: true,
+        describe: "At least two characters of a name, email, group name or group label."
+      }
+    }
+  },
+  "people list": {
+    tool: "listPeopleAndGroups",
+    summary: "List every group (default) or, for IT, every person you could assign to a role.",
+    flags: {
+      app: appRequired,
+      groups: { field: "groups", type: "boolean", describe: "List groups (the default)." },
+      people: { field: "people", type: "boolean", describe: "List people (admin and org_admin)." },
+      cursor
+    },
+    validate: validatePeopleListKind,
+    prepare: preparePeopleListKind
+  },
+  "roles list": {
+    tool: "appRolesList",
+    summary: "List the app's declared roles and who holds each.",
+    flags: { app: appRequired }
+  },
+  "roles assign": {
+    tool: "appRoleAssign",
+    summary: "Assign a person or group to a declared role.",
+    positional: ["role"],
+    flags: { app: appRequired, role: roleRequired, ...holderFlags },
+    validate: validateOneHolder
+  },
+  "roles unassign": {
+    tool: "appRoleUnassign",
+    summary: "Remove a person or group from a role.",
+    positional: ["role"],
+    flags: { app: appRequired, role: roleRequired, ...holderFlags },
+    validate: validateOneHolder
+  },
   skill: skillShowSpec,
   "skill show": skillShowSpec
 };
@@ -18616,10 +18688,11 @@ var DEFAULT_WAIT_SECONDS = 120;
 var WAIT_TIMEOUT_BUFFER_MS = 15e3;
 async function runMcpCommand(apiBase, spec, args, global, deps = {}) {
   const flagSpecs = flagsWithPayloadFile(spec);
-  const parsed = parseFlags(args, flagSpecs);
+  const parsed = parseFlags(withPositionals(args, spec.positional ?? []), flagSpecs);
   const input = { ...parsed };
   delete input[payloadFileField()];
   spec.validate?.(input);
+  spec.prepare?.(input);
   if (spec.payload) {
     Object.assign(input, await resolvePayload(parsed, spec.payload, deps.payload));
   }
@@ -18631,6 +18704,34 @@ async function runMcpCommand(apiBase, spec, args, global, deps = {}) {
   const result = await callTool(apiBase, spec.tool, input, { debug: global.debug, timeoutMs });
   emit(result.structuredContent);
   return result.isError ? exitCodeForToolError(result.structuredContent) : 0;
+}
+function withPositionals(args, names) {
+  const leading = [];
+  let i = 0;
+  while (i < args.length && i < names.length && !args[i].startsWith("--")) {
+    leading.push(`--${names[i]}`, args[i]);
+    i += 1;
+  }
+  return [...leading, ...args.slice(i)];
+}
+function validateOneHolder(input) {
+  const holder = input["holder"] ?? {};
+  if (Object.keys(holder).length !== 1) {
+    throw invalid2(
+      "Name the holder with exactly one of --email, --user-id, --group, --idp-group or --idp-group-id.",
+      "holder"
+    );
+  }
+}
+function validatePeopleListKind(input) {
+  if (input["groups"] === true && input["people"] === true) {
+    throw invalid2("Pass --groups or --people, not both.", "kind");
+  }
+}
+function preparePeopleListKind(input) {
+  input["kind"] = input["people"] === true ? "people" : "groups";
+  delete input["groups"];
+  delete input["people"];
 }
 function invalid2(message2, field) {
   const err = new CliError(message2, "validation.body_invalid", 2);
@@ -18789,7 +18890,15 @@ function helpText() {
   return lines.join("\n");
 }
 function commandHelp(name, spec) {
-  const lines = [`greenlight ${name} \u2014 ${spec.summary}`, "", "Flags:"];
+  const lines = [`greenlight ${name} \u2014 ${spec.summary}`, ""];
+  if (spec.positional?.length) {
+    const args = spec.positional.map((p) => `<${p}>`).join(" ");
+    lines.push(
+      `Usage: greenlight ${name} ${args} [flags]  (or pass each as --${spec.positional.join(", --")})`,
+      ""
+    );
+  }
+  lines.push("Flags:");
   for (const [flag, f] of Object.entries(spec.flags)) {
     const value = f.type === "boolean" ? "" : f.type === "enum" ? ` <${f.enumValues?.join("|")}>` : ` <value>`;
     const required2 = f.required ? " (required)" : "";
