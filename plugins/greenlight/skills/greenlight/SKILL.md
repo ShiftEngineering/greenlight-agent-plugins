@@ -804,6 +804,7 @@ rejects them as reserved.
 | a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name                    |
 | an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                                      |
 | always (a `web` workload)                         | `PORT`                                                                             |
+| `roles:`                                          | no env var: requests carry `X-User-Roles` — see [app-roles](../app-roles/SKILL.md) |
 
 **Connect to Postgres with `DATABASE_URL` exactly as injected — it already carries the TLS
 settings.** On GCP it reads `sslmode=verify-ca&sslrootcert=/etc/greenlight/db-server-ca.pem`: the
@@ -846,7 +847,8 @@ what the app declares — is `DATABASE_URL`, `STORAGE_ACCESS_URL`, `STORAGE_ACCE
 `STORAGE_ENDPOINT`, `STORAGE_CONTAINER_NAME`, `STORAGE_OBJECT_PREFIX`, `STORAGE_SAS_URL`,
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `DATABASE_SERVER_CA_CERT`,
 `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`, `PORT`, `GREENLIGHT_AI_KEY`,
-`GREENLIGHT_AI_BASE_URL`, `PUBLIC_BASE_URL`, `DEV_USER_EMAIL`, `DEV_USER_GROUPS`; each injected
+`GREENLIGHT_AI_BASE_URL`, `PUBLIC_BASE_URL`, `DEV_USER_EMAIL`, `DEV_USER_GROUPS`,
+`DEV_USER_ROLES`; each injected
 integration additionally reserves its own env-var name per-app. User-declared names must match
 `^[A-Z][A-Z0-9_]{0,127}$`.
 
@@ -1141,6 +1143,8 @@ headers; no app code triggers this:
   (settings, preferences, drafts, "my items").
 - **`X-User-Email`** — for display, notifications, attribution.
 - **`X-User-Name`** — display name (may be empty — fall back to the email).
+- **`X-User-Roles`** — on an app that declares `roles:`, the roles the person holds on this app.
+  Before declaring or checking a role, read the bundled [app-roles skill](../app-roles/SKILL.md) in full.
 
 This gives you per-user features for free — no login code, no session store.
 
