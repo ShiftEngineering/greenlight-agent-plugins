@@ -590,7 +590,7 @@ workloads:
     # Declaring compute sets request=limit and reserves that capacity even when idle.
     # Above 250m / 512Mi (org-tunable) raises a warn-level advisory; size on measured usage.
     # Add only after evidence (OOMKilled → memory; CPU throttle / slow starts → cpu).
-    # Caps are org-set (default cpu<=2, memory<=4Gi). See Packaging → Sizing compute.
+    # Caps are the installation's (cpu<=1 or 2, memory<=4Gi). See Packaging → Sizing compute.
 
 resources: # one entry max per kind at MVP
   - kind: postgres
@@ -907,8 +907,12 @@ and route. The contract (some items pipeline-enforced, others recommended):
 - **Expose port 8080** and bind to it (`PORT` is injected; read it). No privileged ports like `80`
   or `443`.
 - **Sizing compute.** Every app namespace has a `ResourceQuota` ceiling you neither set nor see —
-  Greenlight sizes it to admit any workload up to the org compute cap (default cpu 2 / memory 4Gi),
-  including the extra pod a rolling update runs. **Start with no `compute:` block** — the baseline
+  Greenlight sizes it to admit any workload up to the compute cap, including the extra pod a
+  rolling update runs. The cap is memory 4Gi, and cpu 1 on an installation created with 2 vCPU
+  app nodes (the default on AWS and Google Cloud) or cpu 2 elsewhere; an org can set its own, and
+  `getPolicies` shows that override as the check's `config` when one exists. With no override
+  there, keep `cpu` at 1 or below: if the app needs more, ask for it, and a
+  `workload-compute-limit` violation states the cap in force. **Start with no `compute:` block** — the baseline
   (25m CPU / 128Mi memory requests, 500m / 512Mi limits) is right for almost every app: static UIs
   and typical Node/Python APIs alike. Declaring `compute:` sets **request = limit** (Guaranteed
   QoS), so the value you write is **reserved against the cluster for as long as the app is

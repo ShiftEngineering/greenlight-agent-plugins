@@ -7317,6 +7317,16 @@ var sessionExpiredError = () => new CliError("Session expired or revoked. Run `g
 var forbiddenError = (message2) => new CliError(message2, "auth.forbidden", 3);
 
 // packages/cli/src/cli/args.ts
+var AS_ROLES_FLAG = {
+  field: "as_roles",
+  type: "string",
+  describe: "Comma-separated roles the app declares, sent in place of your own; `--as-roles=` for none."
+};
+function splitAsRoles(input) {
+  const value = input["as_roles"];
+  if (typeof value !== "string") return;
+  input["as_roles"] = value.split(",").map((role) => role.trim()).filter((role) => role.length > 0);
+}
 var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function invalid(message2, field) {
   const err = new CliError(message2, "validation.body_invalid", 2);
@@ -17010,10 +17020,12 @@ var PREVIEW_FLAGS = {
     format: "uuid",
     describe: "App id (from `apps list`)."
   },
-  path: { field: "path", type: "string", describe: "Path to open under the app." }
+  path: { field: "path", type: "string", describe: "Path to open under the app." },
+  "as-roles": AS_ROLES_FLAG
 };
 async function cmdPreview(apiBase, args, global) {
   const input = parseFlags(args, PREVIEW_FLAGS);
+  splitAsRoles(input);
   const result = await callTool(apiBase, WORKFLOW_TOOLS.preview, input, { debug: global.debug });
   if (result.isError) {
     emit(result.structuredContent);
@@ -17176,11 +17188,13 @@ var CURL_FLAGS = {
     field: "as_user",
     type: "string",
     describe: "Same-org user id or email (platform admin/org_admin only)."
-  }
+  },
+  "as-roles": AS_ROLES_FLAG
 };
 async function cmdCurl(apiBase, args, global, deps = {}) {
   const parsed = parseFlags(args, CURL_FLAGS);
   const input = { ...parsed };
+  splitAsRoles(input);
   const headersFile = input[HEADERS_FILE_FIELD];
   delete input[HEADERS_FILE_FIELD];
   if (typeof headersFile === "string") {
