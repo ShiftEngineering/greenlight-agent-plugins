@@ -18124,6 +18124,25 @@ var MCP_COMMANDS = {
     summary: "Show one app: env, grants, resources, pipeline.",
     flags: { app: appRequired }
   },
+  "apps database-route": {
+    tool: "setAppDatabaseRoute",
+    summary: "Org admin: route an app to its database direct, through the pooler, or by default.",
+    positional: ["route"],
+    flags: {
+      app: appRequired,
+      route: {
+        field: "route",
+        type: "string",
+        required: true,
+        describe: "direct, pooler, or default (follow the install-wide route)."
+      }
+    },
+    validate: (input) => {
+      if (!["direct", "pooler", "default"].includes(String(input["route"]))) {
+        throw invalid2("The route must be direct, pooler, or default.", "route");
+      }
+    }
+  },
   "apps register": {
     tool: "registerApp",
     summary: "Register a new app scaffold; use `repo clone` for an authenticated checkout.",
