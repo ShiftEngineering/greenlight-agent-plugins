@@ -104,11 +104,28 @@ app.post('/api/requests/:id/approve', async (req, reply) => {
 
 ## Moving an app off group checks
 
-When the app's code compares group names (an `X-User-Groups` header, a hardcoded list of emails or
-group ids), declare a role for each group it checked and change every group check to a role check
-**in the same change**. Straight after the merge, assign those groups to the roles. Until you do,
-the new roles have no holders, so tell the citizen developer that the guarded features are hidden
-from everyone for that minute.
+Greenlight no longer sends apps `X-User-Groups`, and `greenlight run` never sets `DEV_USER_GROUPS`.
+An app whose code reads either, or otherwise uses group names to decide what someone sees, can do,
+or how they are treated (joining a roster automatically counts), already sees no groups: a feature
+shown to a group is hidden from everyone.
+
+1. **Say who gets what today** before changing anything, in plain words, and that these checks
+   have already stopped working.
+2. **Declare a role for each thing a group unlocked** and change every group check to a role check
+   **in the same change**. Keep the app's own local-development fallback (its `NODE_ENV` test,
+   reading the header first) and read `DEV_USER_ROLES` where it read `DEV_USER_GROUPS`.
+3. **Remove settings that only named a group**, such as an `EDITOR_GROUP` env var, from the code and
+   `greenlight.yml`. `envList` shows whether one still has a value; `envRemove` clears it.
+4. **Leave stored data alone.** Rows the group path wrote, such as a roster entry marked as joined
+   through a group, stay valid; keep reading them as before.
+
+**An email list the app keeps itself still works.** An env var or table of emails is not a group
+check, and nothing about it changed. Tell the citizen developer it exists and ask whether to move
+it to a role too; move it only when they say so.
+
+Straight after the merge, assign those groups to the roles. Until you do, the new roles have no
+holders, so tell the citizen developer that the guarded features are hidden from everyone for that
+minute.
 
 ## Assigning holders
 
