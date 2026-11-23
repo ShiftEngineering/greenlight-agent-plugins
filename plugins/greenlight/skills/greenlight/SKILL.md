@@ -1144,7 +1144,8 @@ headers; no app code triggers this:
 - **`X-User-Email`** — for display, notifications, attribution.
 - **`X-User-Name`** — display name (may be empty — fall back to the email).
 - **`X-User-Roles`** — on an app that declares `roles:`, the roles the person holds on this app.
-  Before declaring or checking a role, read the bundled [app-roles skill](../app-roles/SKILL.md) in full.
+  When some people can do more than others (approvers, admins, a pilot group), build it with
+  roles, never a new list of emails: read the bundled [app-roles skill](../app-roles/SKILL.md) in full first.
 
 This gives you per-user features for free — no login code, no session store.
 

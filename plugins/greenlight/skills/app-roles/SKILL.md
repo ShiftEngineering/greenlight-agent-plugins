@@ -6,7 +6,7 @@ description: >-
   Use when the citizen developer describes approvers, admins, editors, managers,
   a pilot or beta group, or "only X can do Y"; when an app declares roles:,
   reads X-User-Roles or DEV_USER_ROLES, assigns holders with appRoleAssign, or
-  still compares group names in its code.
+  keeps its own list of emails that decides who can do what.
 user-invocable: false
 ---
 
@@ -20,7 +20,7 @@ An app **declares** the roles its code checks, for example `pto_approver`, in `g
 The app's owner, an editor, or an org admin **assigns** people, Greenlight groups and registered IdP groups
 to each role, usually by asking you. Every allowed request to the app then carries
 **`X-User-Roles`**, the roles the signed-in person holds on this app. Your code checks
-`pto_approver`, never a group name or an email list. Who holds a role changes within 60 seconds,
+`pto_approver` and never needs to know who holds it. Who holds a role changes within 60 seconds,
 with no redeploy.
 
 Roles decide what someone can do once they are in the app. Who can open the app at all is the
@@ -103,30 +103,30 @@ app.post('/api/requests/:id/approve', async (req, reply) => {
 - **Test each check**: a request with the role succeeds, and one without it, or with no header,
   gets the baseline or a 403.
 
-## Moving an app off group checks
+## An app that already has its own permissions
 
-Greenlight no longer sends apps `X-User-Groups`, and `greenlight run` never sets `DEV_USER_GROUPS`.
-An app whose code reads either, or otherwise uses group names to decide what someone sees, can do,
-or how they are treated (joining a roster automatically counts), already sees no groups: a feature
-shown to a group is hidden from everyone.
+Apps built before Greenlight had roles decide who can do what themselves: emails in an env var or
+in the code, or a table with its own admin screen. That still works. **Never move it to roles
+unasked.** Once roles are on for the install, a new permission is a role, never a second list.
 
-1. **Say who gets what today** before changing anything, in plain words, and that these checks
-   have already stopped working.
-2. **Declare a role for each thing a group unlocked** and change every group check to a role check
-   **in the same change**. Keep the app's own local-development fallback (its `NODE_ENV` test,
-   reading the header first) and read `DEV_USER_ROLES` where it read `DEV_USER_GROUPS`.
-3. **Remove settings that only named a group**, such as an `EDITOR_GROUP` env var, from the code and
-   `greenlight.yml`. `envList` shows whether one still has a value; `envRemove` clears it.
-4. **Leave stored data alone.** Rows the group path wrote, such as a roster entry marked as joined
-   through a group, stay valid; keep reading them as before.
+A role can replace such a list only when all the app does with it is check whether the signed-in
+person is on it. It cannot when the app also:
 
-**An email list the app keeps itself still works.** An env var or table of emails is not a group
-check, and nothing about it changed. Tell the citizen developer it exists and ask whether to move
-it to a role too; move it only when they say so.
+- lists who is on it, to notify every approver or show their names;
+- checks it with no signed-in person on the request: a scheduled job, a webhook, a chat command;
+- ties a person to particular records: a manager approves only their own team's requests;
+- lets people change it inside the app.
 
-Straight after the merge, assign those groups to the roles. Until you do, the new roles have no
-holders, so tell the citizen developer that the guarded features are hidden from everyone for that
-minute.
+**When a role can replace it**, your work touches who can do what, and roles are on, ask one
+short question and nothing more: "Greenlight now has built-in roles. Want me to move the approver
+list to them? The same people keep access, and you'd manage it on the app's Access tab." If they
+say no, note it in the README and do not ask again. When a role cannot replace it, do not bring it
+up; if they ask, say in one sentence what the app would lose.
+
+**To move it, keep the same people.** Declare the roles, changing no check in the same change, and
+assign everyone on the list. If an assignment is refused, stop and say why: the list still works.
+Then switch the checks one for one in a second change. Afterwards remove an env var or constant
+nothing reads, and leave a table and its rows alone.
 
 ## Assigning holders
 
