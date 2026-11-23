@@ -5,6 +5,7 @@ description: >-
   Use when an app lists, summarizes, or charts many rows from a connected
   database or upstream API, exports a CSV, caches upstream results, or is slow,
   errors out loading data, or hits the connected-database execution cap.
+user-invocable: false
 ---
 
 # Performance

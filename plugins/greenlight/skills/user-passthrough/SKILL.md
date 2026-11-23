@@ -1,6 +1,7 @@
 ---
 name: user-passthrough
 description: Builds app features that act as the signed-in person in another system through Greenlight's user passthrough integrations (Microsoft Graph, Microsoft Fabric, Power BI semantic models, Box and others with auth_category user-delegated). Use when a Greenlight-governed app reads or writes a person's own mail, files, calendar, workspace or warehouse data, handles 401 proxy.user_connection_required or a connect_url, shows a Connect button, runs scheduled work on a person's behalf, or decides between acting as the person and acting as the app.
+user-invocable: false
 ---
 
 # User passthrough

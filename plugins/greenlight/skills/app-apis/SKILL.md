@@ -7,6 +7,7 @@ description: >-
   X-Greenlight-Caller-* headers, writes or updates its openapi.yaml, or when an
   app needs data another Greenlight app owns, finds an integration with kind
   "app", reads it with getAppApi, or handles 503 proxy.app_api_unavailable.
+user-invocable: false
 ---
 
 # App APIs

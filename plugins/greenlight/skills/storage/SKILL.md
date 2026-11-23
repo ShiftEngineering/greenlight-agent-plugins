@@ -5,6 +5,7 @@ description: >-
   proxy. Use when a Greenlight-governed app declares kind: blob, copies in the
   storage client, streams uploads or downloads, lists objects, or authorizes
   end-user file access.
+user-invocable: false
 ---
 
 # Storage

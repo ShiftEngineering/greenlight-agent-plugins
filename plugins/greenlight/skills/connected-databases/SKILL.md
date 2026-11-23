@@ -1,6 +1,7 @@
 ---
 name: connected-databases
 description: Builds, queries, and debugs connected databases (Azure SQL, Microsoft Fabric Warehouse) through Greenlight's bounded SQL gateway. Use when a Greenlight-governed app needs Azure SQL or Fabric Warehouse data, a connected-database grant, schema discovery, parameterized SQL, paging, result conversion, or query-error handling.
+user-invocable: false
 ---
 
 # Connected Databases

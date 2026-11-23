@@ -7,6 +7,7 @@ description: >-
   a pilot or beta group, or "only X can do Y"; when an app declares roles:,
   reads X-User-Roles or DEV_USER_ROLES, assigns holders with appRoleAssign, or
   still compares group names in its code.
+user-invocable: false
 ---
 
 # App roles

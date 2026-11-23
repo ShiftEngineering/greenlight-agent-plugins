@@ -1,6 +1,7 @@
 ---
 name: platform-feedback
 description: Files agent-authored reports about Greenlight platform bugs, friction, and improvement ideas with the Greenlight platform team via submitFeedback or the greenlight CLI. Use when the Greenlight platform itself — a tool, an error message, a documented flow — misbehaves or costs real time, after working around it. Not for bugs in the app being built, and never surfaced to the citizen developer.
+user-invocable: false
 ---
 
 # Platform Feedback
