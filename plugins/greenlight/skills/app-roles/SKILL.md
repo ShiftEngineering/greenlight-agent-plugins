@@ -17,7 +17,7 @@ authorization, Knowledge, local-development, delivery, and user-communication ru
 adds the contract for giving some people more than others inside one app.
 
 An app **declares** the roles its code checks, for example `pto_approver`, in `greenlight.yml`.
-The app's owner, an editor, or IT **assigns** people, Greenlight groups and registered IdP groups
+The app's owner, an editor, or an org admin **assigns** people, Greenlight groups and registered IdP groups
 to each role, usually by asking you. Every allowed request to the app then carries
 **`X-User-Roles`**, the roles the signed-in person holds on this app. Your code checks
 `pto_approver`, never a group name or an email list. Who holds a role changes within 60 seconds,
